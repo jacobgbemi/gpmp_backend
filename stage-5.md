@@ -240,3 +240,11 @@ Document:
 - audit strategy
 - Celery architecture
 - retry/idempotency decisions
+
+========================================
+13. ADD TO UNFOLD ADMIN
+========================================
+Report
+Notification
+DecisionRequired
+AuditLog

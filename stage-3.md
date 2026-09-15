@@ -246,3 +246,10 @@ Document:
 - risk scoring formula
 - issue lifecycle
 - authorization rules
+
+========================================
+13. ADD TO UNFOLD ADMIN
+========================================
+Variation
+Risk
+Issue
