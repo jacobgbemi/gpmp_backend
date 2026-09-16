@@ -37,7 +37,11 @@ def glintpm_exception_handler(exc, context):
 
     if isinstance(errors, dict) and "detail" in errors:
         message = str(errors["detail"])
-        errors = None if len(errors) == 1 else {k: v for k, v in errors.items() if k != "detail"}
+        errors = (
+            None
+            if len(errors) == 1
+            else {k: v for k, v in errors.items() if k != "detail"}
+        )
 
     response.data = {
         "success": False,

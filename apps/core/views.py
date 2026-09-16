@@ -47,7 +47,9 @@ class HealthCheckView(APIView):
                 "timestamp": timezone.now().isoformat(),
                 "service": "glintpm-private-backend",
             },
-            message="Service is healthy." if overall_status == "ok" else "Service is degraded.",
+            message="Service is healthy."
+            if overall_status == "ok"
+            else "Service is degraded.",
             status_code=http_status,
             success=(overall_status == "ok"),
         )
