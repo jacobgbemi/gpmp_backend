@@ -66,11 +66,16 @@ INSTALLED_APPS = [
     # Third-party
     "rest_framework",
     "rest_framework_simplejwt",
+    # Required: simplejwt imports its blacklist models when
+    # BLACKLIST_AFTER_ROTATION is True.
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
     "drf_spectacular",
-    # Local apps (foundation only in Stage 0)
+    # Local apps
     "apps.core",
+    "apps.accounts",
+    "apps.organizations",
 ]
 
 MIDDLEWARE = [
@@ -86,6 +91,9 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
+
+# Custom user (email login, UUID pk). Must be set before the first migrate.
+AUTH_USER_MODEL = "accounts.User"
 
 TEMPLATES = [
     {
@@ -194,6 +202,8 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
 }
 
 # ---------------------------------------------------------------------------
