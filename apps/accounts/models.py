@@ -11,6 +11,8 @@ first `migrate` of a database.
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.db.models.functions import Lower
+from typing import ClassVar
+
 
 from common.models import TimeStampedModel, UUIDModel
 
@@ -47,16 +49,17 @@ class User(UUIDModel, TimeStampedModel, AbstractUser):
     email = models.EmailField("email address", unique=True)
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: list[str] = []
+    REQUIRED_FIELDS: ClassVar[list[str]] = []
 
     objects = UserManager()
 
     class Meta:
-        ordering = ["email"]
-        constraints = [
-            # Emails are compared case-insensitively at the database level.
+        ordering: ClassVar[list[str]] = ["email"]
+
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
-                Lower("email"), name="accounts_user_email_ci_unique"
+                Lower("email"),
+                name="accounts_user_email_ci_unique",
             ),
         ]
 

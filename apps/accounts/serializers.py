@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from typing import ClassVar
 
 from apps.accounts.models import User
 from apps.organizations.models import OrganizationMembership
@@ -24,14 +25,16 @@ class MembershipSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrganizationMembership
-        fields = [
+
+        fields: ClassVar[list[str]] = [
             "id",
             "organization_id",
             "organization_name",
             "organization_slug",
             "role",
         ]
-        read_only_fields = fields
+
+        read_only_fields: ClassVar[list[str]] = fields
 
 
 class CurrentUserSerializer(serializers.ModelSerializer):
@@ -46,8 +49,16 @@ class CurrentUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "memberships"]
-        read_only_fields = fields
+
+        fields: ClassVar[list[str]] = [
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "memberships",
+        ]
+
+        read_only_fields: ClassVar[list[str]] = fields
 
     def get_memberships(self, user):
         queryset = user.memberships.select_related("organization").order_by(

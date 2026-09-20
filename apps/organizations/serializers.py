@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from typing import ClassVar
 
 from apps.organizations.models import Organization, OrganizationMembership
 
@@ -8,9 +9,22 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "slug", "my_role", "created_at", "updated_at"]
-        # Only `name` is writable — protects against mass assignment.
-        read_only_fields = ["id", "slug", "my_role", "created_at", "updated_at"]
+        fields: ClassVar[list[str]] = [
+            "id",
+            "name",
+            "slug",
+            "my_role",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields: ClassVar[list[str]] = [
+            "id",
+            "slug",
+            "my_role",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):

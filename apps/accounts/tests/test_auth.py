@@ -30,7 +30,9 @@ class TestUserCreation:
         assert user.check_password("Pass1234!")
 
     def test_create_user_normalizes_email(self):
-        user = User.objects.create_user(email="  New@Example.com ", password="Pass1234!")
+        user = User.objects.create_user(
+            email="  New@Example.com ", password="Pass1234!"
+        )
 
         assert user.email == "new@example.com"
 
@@ -45,13 +47,17 @@ class TestUserCreation:
             User.objects.create_user(email="DUP@example.com", password="Pass1234!")
 
     def test_create_superuser_sets_flags(self):
-        admin = User.objects.create_superuser(email="admin@example.com", password="Pass1234!")
+        admin = User.objects.create_superuser(
+            email="admin@example.com", password="Pass1234!"
+        )
 
         assert admin.is_staff is True
         assert admin.is_superuser is True
 
     def test_new_user_is_active_by_default(self):
-        user = User.objects.create_user(email="active@example.com", password="Pass1234!")
+        user = User.objects.create_user(
+            email="active@example.com", password="Pass1234!"
+        )
 
         assert user.is_active is True
         assert user.is_staff is False
@@ -143,7 +149,9 @@ class TestLogin:
 
 @pytest.mark.django_db
 class TestTokenRefresh:
-    def test_refresh_with_valid_token_returns_new_access_token(self, api_client, user_a):
+    def test_refresh_with_valid_token_returns_new_access_token(
+        self, api_client, user_a
+    ):
         login = api_client.post(
             "/api/auth/token/",
             {"email": user_a.email, "password": DEFAULT_PASSWORD},

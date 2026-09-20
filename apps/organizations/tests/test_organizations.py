@@ -42,7 +42,9 @@ class TestOrganizationCreation:
         assert membership.role == Role.ORGANIZATION_ADMIN
 
     def test_create_organization_requires_authentication(self, api_client):
-        response = api_client.post("/api/organizations/", {"name": "New Co"}, format="json")
+        response = api_client.post(
+            "/api/organizations/", {"name": "New Co"}, format="json"
+        )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -115,7 +117,9 @@ class TestMembership:
             )
 
     def test_change_member_role(self, org_a, user_b):
-        membership = services.add_member(organization=org_a, user=user_b, role=Role.VIEWER)
+        membership = services.add_member(
+            organization=org_a, user=user_b, role=Role.VIEWER
+        )
 
         services.change_member_role(membership=membership, role=Role.PROJECT_MANAGER)
         membership.refresh_from_db()
@@ -123,7 +127,9 @@ class TestMembership:
         assert membership.role == Role.PROJECT_MANAGER
 
     def test_change_member_role_rejects_invalid_role(self, org_a, user_b):
-        membership = services.add_member(organization=org_a, user=user_b, role=Role.VIEWER)
+        membership = services.add_member(
+            organization=org_a, user=user_b, role=Role.VIEWER
+        )
 
         with pytest.raises(ValidationError):
             services.change_member_role(membership=membership, role="NOT_A_REAL_ROLE")
@@ -144,7 +150,9 @@ class TestMembership:
 
 @pytest.mark.django_db
 class TestOrganizationAccess:
-    def test_list_only_returns_own_organizations(self, user_a, org_a, org_b, auth_client):
+    def test_list_only_returns_own_organizations(
+        self, user_a, org_a, org_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get("/api/organizations/")
@@ -180,7 +188,9 @@ class TestOrganizationAccess:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_non_admin_member_cannot_update_organization(self, org_a, make_user, auth_client):
+    def test_non_admin_member_cannot_update_organization(
+        self, org_a, make_user, auth_client
+    ):
         member = make_user(email="member@example.com")
         services.add_member(organization=org_a, user=member, role=Role.VIEWER)
         client, _ = auth_client(member)
@@ -258,7 +268,9 @@ class TestCrossOrganizationIDOR:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_org_b_does_not_appear_in_user_a_list(self, user_a, org_a, org_b, auth_client):
+    def test_org_b_does_not_appear_in_user_a_list(
+        self, user_a, org_a, org_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get("/api/organizations/")
@@ -266,7 +278,9 @@ class TestCrossOrganizationIDOR:
         names = {org["name"] for org in response.data["results"]}
         assert org_b.name not in names
 
-    def test_404_response_does_not_leak_org_b_existence(self, user_a, org_b, auth_client):
+    def test_404_response_does_not_leak_org_b_existence(
+        self, user_a, org_b, auth_client
+    ):
         """
         A 404 for a real-but-foreign org ID and a 404 for a random UUID must
         be indistinguishable, so an attacker can't use response differences
@@ -282,9 +296,13 @@ class TestCrossOrganizationIDOR:
         assert real_foreign_org.status_code == random_uuid.status_code == 404
         assert real_foreign_org.data == random_uuid.data
 
-    def test_removed_member_immediately_loses_access(self, org_a, make_user, auth_client):
+    def test_removed_member_immediately_loses_access(
+        self, org_a, make_user, auth_client
+    ):
         member = make_user(email="temp@example.com")
-        membership = services.add_member(organization=org_a, user=member, role=Role.VIEWER)
+        membership = services.add_member(
+            organization=org_a, user=member, role=Role.VIEWER
+        )
         client, _ = auth_client(member)
 
         # Confirm access while still a member.
@@ -321,7 +339,9 @@ class TestDatabaseIntegrity:
 
         assert not OrganizationMembership.objects.filter(id=membership_id).exists()
 
-    def test_organization_membership_cascades_on_organization_delete(self, org_a, user_a):
+    def test_organization_membership_cascades_on_organization_delete(
+        self, org_a, user_a
+    ):
         membership_id = OrganizationMembership.objects.get(
             user=user_a, organization=org_a
         ).id

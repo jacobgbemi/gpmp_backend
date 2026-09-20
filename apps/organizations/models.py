@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from typing import ClassVar
 
 from common.models import BaseModel
 
@@ -24,7 +25,7 @@ class Organization(BaseModel):
     slug = models.SlugField(max_length=80, unique=True)
 
     class Meta:
-        ordering = ["name"]
+        ordering: ClassVar[list[str]] = ["name"]
 
     def __str__(self):
         return self.name
@@ -46,14 +47,19 @@ class OrganizationMembership(BaseModel):
     role = models.CharField(max_length=32, choices=Role.choices, default=Role.VIEWER)
 
     class Meta:
-        ordering = ["organization__name", "user__email"]
-        constraints = [
+        ordering: ClassVar[list[str]] = [
+            "organization__name",
+            "user__email",
+        ]
+
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["user", "organization"],
                 name="organizations_membership_user_org_unique",
             ),
         ]
-        indexes = [
+
+        indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["organization", "role"]),
         ]
 

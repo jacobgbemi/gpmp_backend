@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.forms import AdminPasswordChangeForm, UserChangeForm, UserCreationForm
+from typing import ClassVar
 
 from apps.accounts.models import User
 from apps.organizations.models import OrganizationMembership
@@ -22,7 +23,7 @@ class UserAdminChangeForm(UserChangeForm):
 class MembershipInline(TabularInline):
     model = OrganizationMembership
     extra = 0
-    autocomplete_fields = ["organization"]
+    autocomplete_fields: ClassVar[list[str]] = ["organization"]
 
 
 @admin.register(User)
@@ -43,7 +44,7 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     search_fields = ("email", "first_name", "last_name")
     ordering = ("email",)
     readonly_fields = ("id", "created_at", "updated_at", "last_login")
-    inlines = [MembershipInline]
+    inlines: ClassVar[list[type[admin.TabularInline]]] = [MembershipInline]
 
     fieldsets = (
         (None, {"fields": ("id", "email", "password")}),

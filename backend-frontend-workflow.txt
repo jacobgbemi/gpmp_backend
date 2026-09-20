@@ -1,3 +1,6 @@
+ps aux | grep runserver
+kill -9 2450
+
 ---------------
 BACKEND
 ---------------

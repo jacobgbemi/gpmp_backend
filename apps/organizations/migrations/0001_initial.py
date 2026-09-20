@@ -7,7 +7,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -16,32 +15,88 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Organization',
+            name="Organization",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('name', models.CharField(max_length=200)),
-                ('slug', models.SlugField(max_length=80, unique=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("name", models.CharField(max_length=200)),
+                ("slug", models.SlugField(max_length=80, unique=True)),
             ],
             options={
-                'ordering': ['name'],
+                "ordering": ["name"],
             },
         ),
         migrations.CreateModel(
-            name='OrganizationMembership',
+            name="OrganizationMembership",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('role', models.CharField(choices=[('PLATFORM_ADMIN', 'Platform admin'), ('ORGANIZATION_ADMIN', 'Organization admin'), ('PROJECT_MANAGER', 'Project manager'), ('PROJECT_CONTROLS', 'Project controls'), ('SITE_INSPECTOR', 'Site inspector'), ('CONSULTANT', 'Consultant'), ('CLIENT_OWNER', 'Client owner'), ('VIEWER', 'Viewer')], default='VIEWER', max_length=32)),
-                ('organization', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='memberships', to='organizations.organization')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='memberships', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[
+                            ("PLATFORM_ADMIN", "Platform admin"),
+                            ("ORGANIZATION_ADMIN", "Organization admin"),
+                            ("PROJECT_MANAGER", "Project manager"),
+                            ("PROJECT_CONTROLS", "Project controls"),
+                            ("SITE_INSPECTOR", "Site inspector"),
+                            ("CONSULTANT", "Consultant"),
+                            ("CLIENT_OWNER", "Client owner"),
+                            ("VIEWER", "Viewer"),
+                        ],
+                        default="VIEWER",
+                        max_length=32,
+                    ),
+                ),
+                (
+                    "organization",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="memberships",
+                        to="organizations.organization",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="memberships",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ['organization__name', 'user__email'],
-                'indexes': [models.Index(fields=['organization', 'role'], name='organizatio_organiz_e1169f_idx')],
-                'constraints': [models.UniqueConstraint(fields=('user', 'organization'), name='organizations_membership_user_org_unique')],
+                "ordering": ["organization__name", "user__email"],
+                "indexes": [
+                    models.Index(
+                        fields=["organization", "role"],
+                        name="organizatio_organiz_e1169f_idx",
+                    )
+                ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("user", "organization"),
+                        name="organizations_membership_user_org_unique",
+                    )
+                ],
             },
         ),
     ]

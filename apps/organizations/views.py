@@ -3,6 +3,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from typing import ClassVar
 
 from apps.organizations import selectors, services
 from apps.organizations.permissions import IsOrganizationAdminOrReadOnly
@@ -32,8 +33,18 @@ class OrganizationViewSet(
     """
 
     serializer_class = OrganizationSerializer
-    permission_classes = [IsAuthenticated, IsOrganizationAdminOrReadOnly]
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    permission_classes: ClassVar[list[type]] = [
+        IsAuthenticated,
+        IsOrganizationAdminOrReadOnly,
+    ]
+
+    http_method_names: ClassVar[list[str]] = [
+        "get",
+        "post",
+        "patch",
+        "head",
+        "options",
+    ]
 
     def get_queryset(self):
         return selectors.organizations_for_user(self.request.user)

@@ -83,7 +83,10 @@ class TestAdminAndUnfold:
 
     def test_admin_index_redirects_anonymous_to_login(self, client):
         response = client.get("/admin/")
-        assert response.status_code in (status.HTTP_302_FOUND, status.HTTP_301_MOVED_PERMANENTLY)
+        assert response.status_code in (
+            status.HTTP_302_FOUND,
+            status.HTTP_301_MOVED_PERMANENTLY,
+        )
 
     def test_unfold_app_is_installed(self):
         assert apps.is_installed("unfold")
