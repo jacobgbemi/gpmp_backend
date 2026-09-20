@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GlintPM Private — Local",
-    "description": "Stage 0: foundation endpoints only (health check + admin, documented for reference).",
+    "description": "Stage 0 (health) + Stage 1 (auth + organizations) endpoints. Run 'Login' first — it saves {{access_token}}/{{refresh_token}} to the environment automatically, and every authenticated request below uses Bearer {{access_token}}.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -30,6 +30,262 @@
         }
       },
       "response": []
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (obtain token pair)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('access_token', body.access);",
+                  "    pm.environment.set('refresh_token', body.refresh);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/token/",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "token", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login — invalid password (expect 401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"definitely-wrong\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/token/",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "token", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('access_token', body.access);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/token/refresh/",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "token", "refresh", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Current user (/me/)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/me/",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "me", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Current user — missing token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/me/",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "me", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Organizations",
+      "item": [
+        {
+          "name": "List my organizations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create organization",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.environment.set('organization_id', pm.response.json().id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Construction\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve organization",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/{{organization_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "{{organization_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update organization (admin only)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Construction Ltd\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/{{organization_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "{{organization_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List organization members",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/{{organization_id}}/members/",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "{{organization_id}}", "members", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve organization — no token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/organizations/{{organization_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "{{organization_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve foreign organization — IDOR check (expect 404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/{{foreign_organization_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "{{foreign_organization_id}}", ""]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }
