@@ -1,0 +1,39 @@
+---------------
+BACKEND
+---------------
+
+STAGE 0
+Project Foundation
+        ↓
+STAGE 1
+Authentication + Organizations
+        ↓
+STAGE 2
+Projects + Budget + Progress + Payments
+        ↓
+STAGE 3
+Variations + Risks + Issues
+        ↓
+STAGE 4
+Inspections + Evidence + Documents
+        ↓
+STAGE 5
+Dashboard + Reports + Notifications + Audit
+        ↓
+STAGE 6
+Hardening + Testing + Docker + Production Readiness
+
+
+---------------
+FRONTEND
+---------------
+
+| Stage | Frontend Focus                                | Depends On      |
+| ----- | --------------------------------------------- | --------------- |
+| 1     | Foundation + Authentication                   | Backend Stage 1 |
+| 2     | Projects + Owner Dashboard                    | Backend Stage 2 |
+| 3     | Risks + Variations                            | Backend Stage 3 |
+| 4     | Inspections + Evidence + Documents            | Backend Stage 4 |
+| 5     | Executive Dashboard + Reports + Notifications | Backend Stage 5 |
+| 6     | Production Hardening + Performance            | Backend Stage 6 |
+
