@@ -3,13 +3,17 @@
 Owner-side Project Control & Assurance platform for high-value construction
 and property projects.
 
-> **Stage 0 + Stage 1 scope.** Stage 0 established the Django project
-> foundation (settings, Unfold admin, health check, OpenAPI docs, tooling).
-> Stage 1 adds the multi-tenant security foundation: a custom email-based
-> `User`, JWT authentication, `Organization` / `OrganizationMembership`,
-> role-based permissions, and enforced organization isolation. Projects,
-> Payments, Risks, Variations, Inspections, Documents, and Reports are still
-> out of scope — they land in later stages.
+> **Stage 0 + Stage 1 + Stage 2 scope.** Stage 0 established the Django
+> project foundation (settings, Unfold admin, health check, OpenAPI docs,
+> tooling). Stage 1 added the multi-tenant security foundation: a custom
+> email-based `User`, JWT authentication, `Organization` /
+> `OrganizationMembership`, role-based permissions, and enforced
+> organization isolation. Stage 2 establishes the financial and progress
+> truth of a project: `Project`, `ProjectBudget`/`BudgetItem`,
+> `ProgressUpdate`, and `PaymentApplication`, with a payment review state
+> machine and an owner-facing dashboard. Variations, Risks, Issues,
+> Inspections, Documents, Reports, and Notifications are still out of
+> scope — they land in later stages.
 
 ## Architecture at a glance
 
@@ -52,8 +56,20 @@ apps/
     views.py               # OrganizationViewSet
     admin.py                # Unfold-registered Organization/Membership admins
     tests/
+  projects/            # Project, ProjectBudget, BudgetItem, ProgressUpdate,
+                        # PaymentApplication — the financial/progress truth
+    models.py            # status/transition tables live alongside the models
+    selectors.py          # projects_for_user, project_dashboard, ...
+    services.py            # create_project, PaymentService.review(), ...
+    permissions.py          # PROJECT_WRITE_ROLES, PAYMENT_REVIEW_ROLES
+    serializers.py           # Project/Budget/Progress/Payment/Dashboard
+    views.py                  # ProjectViewSet (+ budget/progress/payments/
+                               # dashboard sub-actions), PaymentViewSet
+    admin.py                   # Unfold-registered admins for all 5 models
+    tests/
 common/
   models.py            # UUIDModel / TimeStampedModel / BaseModel
+  validators.py        # MONEY_VALIDATORS / PERCENT_VALIDATORS
   permissions.py
   pagination.py
   exceptions.py        # consistent error envelope
@@ -251,6 +267,237 @@ Workflow:
    `foreign_organization_id` to an organization ID that belongs to a
    *different* logged-in user, and confirm it returns 404.
 
+## Stage 2 — Financial & progress truth
+
+### Financial data model
+
+```
+Organization
+  └── Project (organization FK, PROTECT)
+        ├── ProjectBudget (one-to-one)
+        │     └── BudgetItem (many) — category, original/approved/committed/actual
+        ├── ProgressUpdate (many, immutable) — one per reporting_date
+        └── PaymentApplication (many) — requested/recommended/approved/paid
+```
+
+- Every `Project` belongs to exactly one `Organization` (`on_delete=PROTECT`
+  — an organization cannot be deleted out from under its projects). Every
+  `ProjectBudget`, `BudgetItem`, `ProgressUpdate`, and `PaymentApplication`
+  traces back to a `Project` (`on_delete=CASCADE` for the leaves — they only
+  have meaning attached to their project). It is not possible for a
+  `PaymentApplication` (or any of these) to exist without a valid project:
+  the foreign key is required (`null=False`), enforced at the database
+  level, and `test_no_payment_can_exist_without_a_project` asserts this
+  directly.
+- Money is always `DecimalField` (never `float`), validated non-negative
+  via `common.validators.MONEY_VALIDATORS` — see "money precision" below.
+- `ProjectBudget` stores no totals of its own. Every total
+  (`original_total`, `approved_total`, etc.) is computed on read from its
+  `BudgetItem` rows (`apps.projects.selectors._budget_totals`), so a
+  cached total can never drift out of sync with its line items.
+- `ProgressUpdate` is immutable: the API only ever lists and creates these
+  (`ProjectViewSet.progress` supports GET/POST only) — there is no
+  update or delete endpoint, so a project's progress history can always be
+  trusted and replayed. One update per `(project, reporting_date)` is
+  enforced by a database `UniqueConstraint`.
+
+### Payment lifecycle
+
+`PaymentApplication.status` moves through a strict state machine, enforced
+entirely in `PaymentService.review()` (`apps/projects/services.py`) — views
+never set `.status` directly:
+
+```
+SUBMITTED → UNDER_REVIEW → RECOMMENDED → APPROVED → PARTIALLY_PAID → PAID
+    │             │              │
+    └─────────────┴──────────────┴──────────────────────────→ REJECTED
+```
+
+Each transition is one `POST /api/payments/{id}/review/` call with a
+`decision`:
+
+| Decision | Legal from | Effect |
+|---|---|---|
+| `START_REVIEW` | `SUBMITTED` | → `UNDER_REVIEW` |
+| `RECOMMEND` | `UNDER_REVIEW` | sets `amount_recommended` (≤ `amount_requested`) → `RECOMMENDED` |
+| `APPROVE` | `RECOMMENDED` | sets `amount_approved` (≤ `amount_recommended`) → `APPROVED` |
+| `REJECT` | `SUBMITTED`, `UNDER_REVIEW`, `RECOMMENDED` | requires `notes` → `REJECTED` (terminal) |
+| `RECORD_PAYMENT` | `APPROVED`, `PARTIALLY_PAID` | adds to `amount_paid` (cumulative total ≤ `amount_approved`) → `PARTIALLY_PAID` or `PAID` once fully paid |
+
+A payment is created directly as `SUBMITTED` (there is no separate "submit
+draft" step in the Stage 2 API surface — `DRAFT` remains in the status
+choices for schema completeness but isn't reachable via the API today).
+`PAID` and `REJECTED` are terminal — no further transitions are legal, and
+every illegal transition (skipping a step, acting on a terminal payment,
+an unknown `decision`) returns `400` with a specific message, never a
+silent no-op. `RECORD_PAYMENT` supports partial payments: each call adds
+to the running `amount_paid` total, moving to `PARTIALLY_PAID` until the
+cumulative total reaches `amount_approved`, at which point it becomes
+`PAID` automatically.
+
+### Why requested/recommended/approved/paid are separate
+
+This is the core feature of the payments domain, not an implementation
+detail. Four independent `DecimalField`s, never collapsed into one
+"amount":
+
+- **`amount_requested`** — what the contractor asked for. Set once, at
+  submission, and never changed afterward — it's the historical record of
+  the original request.
+- **`amount_recommended`** — what GlintPM's technical review determined is
+  actually justified (may be less than requested, e.g. after a measured
+  quantities check). This is GlintPM's independent assurance function —
+  the entire product proposition depends on this number being visibly
+  distinct from what was merely asked for.
+- **`amount_approved`** — what the organization's decision-maker actually
+  authorized for payment, which may differ from the recommendation for
+  reasons outside GlintPM's technical assessment (cash flow, disputes,
+  partial authorization).
+- **`amount_paid`** — what has actually left the bank, which may lag
+  behind approval and may arrive in more than one instalment
+  (`PARTIALLY_PAID`).
+
+Collapsing these into one field would silently destroy the owner's ability
+to see, at a glance, the gap between "asked for" and "actually justified"
+and between "authorized" and "actually paid" — which is precisely the
+information asymmetry GlintPM exists to close (see "Business problem" in
+`stage-2.md`). Every payment serializer response includes all four,
+always, whether or not they're yet populated (`null` until that stage of
+review is reached).
+
+### Dashboard calculation rules
+
+`GET /api/projects/{id}/dashboard/` (`apps.projects.selectors.project_dashboard`):
+
+| Field | Formula |
+|---|---|
+| `original_budget` | Σ `BudgetItem.original_amount` |
+| `approved_budget` | Σ `BudgetItem.approved_amount` |
+| `actual_spend` | Σ `BudgetItem.actual_amount` |
+| `committed_cost` | Σ `BudgetItem.committed_amount` |
+| `forecast_final_cost` | `actual_spend + committed_cost` |
+| `cost_variance` | `approved_budget - forecast_final_cost` (positive = under budget, negative = over budget) |
+| `planned_progress_percent` | latest `ProgressUpdate.planned_progress_percent` by `reporting_date` |
+| `actual_progress_percent` | latest `ProgressUpdate.actual_progress_percent` |
+| `schedule_variance` | `actual_progress_percent - planned_progress_percent` (positive = ahead, negative = behind) |
+| `pending_payments_count` / `_total` | payments still in `SUBMITTED`, `UNDER_REVIEW`, or `RECOMMENDED` (i.e. not yet a final decision) |
+| `as_of_reporting_date` | `reporting_date` of the progress update the progress figures came from, or `null` if none exist |
+
+`forecast_final_cost` deliberately does **not** include `original_budget`
+or `approved_budget` — it answers "what will this project actually cost",
+which is a function of money already spent plus money already committed,
+not of what was originally planned. All figures are `0.00` (never an
+error or `null`) on a brand-new project with no budget items or progress
+yet, except `as_of_reporting_date`, which is `null` until a progress
+update exists — there is no progress date to report.
+
+### Progress calculation approach
+
+`ProgressUpdate` stores exactly what was reported for a given
+`reporting_date` — `planned_progress_percent` and
+`actual_progress_percent`, both bounded `0`–`100` via
+`common.validators.PERCENT_VALIDATORS`. The API also returns
+`progress_variance_percent` (`actual - planned`) per update, computed at
+serialization time, not stored — so a variance value is never at risk of
+going stale relative to the two percentages it's derived from. The
+dashboard's progress figures always come from the single most recent
+`reporting_date` (`selectors.latest_progress_update`) — Stage 2
+deliberately does not attempt trend analysis, S-curve fitting, or
+schedule-engine-style forecasting; GlintPM stores summary progress
+information rather than becoming a scheduling engine (see
+`main-prompt.md`).
+
+### Permission rules
+
+- **`PROJECT_WRITE_ROLES`** (`PLATFORM_ADMIN`, `ORGANIZATION_ADMIN`,
+  `PROJECT_MANAGER`, `PROJECT_CONTROLS`) — required to create/update/delete
+  a project, add a budget item, or submit a progress update or payment
+  application. Every other role (`SITE_INSPECTOR`, `CONSULTANT`,
+  `CLIENT_OWNER`, `VIEWER`) has read-only access to a project it belongs
+  to.
+- **`PAYMENT_REVIEW_ROLES`** (`PLATFORM_ADMIN`, `ORGANIZATION_ADMIN`,
+  `PROJECT_CONTROLS`) — a strictly narrower set used only for
+  `POST /api/payments/{id}/review/`. **`PROJECT_MANAGER` is deliberately
+  excluded** — separation of duties: the person managing delivery of a
+  project should not also be the one recommending or approving its
+  payments. `test_project_manager_cannot_review_payments` covers this
+  directly.
+- All permission checks resolve the requester's role via their live
+  `OrganizationMembership` on the project's organization
+  (`apps.projects.permissions.get_project_role`) — never from anything the
+  client supplied in the request.
+- A project (or anything nested under it — budget, progress, payments,
+  dashboard) belonging to an organization the requester isn't a member of
+  is absent from every queryset entirely (`selectors.projects_for_user`,
+  `selectors.payment_queryset_for_user`), so it 404s — never 403. This
+  matches the Stage 1 organization-isolation strategy exactly; Stage 2
+  introduces no new isolation mechanism, it just extends the same one down
+  through projects, budgets, progress, and payments.
+
+### API examples
+
+**Create a project:**
+```
+POST /api/projects/
+{
+  "organization": "f814813d-f1ba-4b7e-9d66-4fc65cd9f7e7",
+  "name": "Lekki Residence",
+  "project_code": "LEK-001",
+  "project_type": "RESIDENTIAL",
+  "contract_value": "500000000.00",
+  "currency": "NGN"
+}
+→ 201 { "id": "...", "status": "PLANNING", ... }
+```
+
+**Add a budget line item, then read totals:**
+```
+POST /api/projects/{id}/budget/
+{ "category": "CIVIL", "description": "Foundation works",
+  "original_amount": "100000000.00", "approved_amount": "100000000.00",
+  "committed_amount": "60000000.00", "actual_amount": "40000000.00" }
+
+GET /api/projects/{id}/budget/
+→ { "items": [...], "original_total": "100000000.00", ... }
+```
+
+**Move a payment through review:**
+```
+POST /api/payments/{id}/review/  { "decision": "START_REVIEW" }
+POST /api/payments/{id}/review/  { "decision": "RECOMMEND", "amount": "18000000.00" }
+POST /api/payments/{id}/review/  { "decision": "APPROVE", "amount": "18000000.00" }
+POST /api/payments/{id}/review/  { "decision": "RECORD_PAYMENT", "amount": "18000000.00" }
+→ final response: "status": "PAID", "amount_paid": "18000000.00"
+```
+
+**Retrieve the dashboard:**
+```
+GET /api/projects/{id}/dashboard/
+→ {
+    "original_budget": "500000000.00", "approved_budget": "480000000.00",
+    "actual_spend": "180000000.00", "committed_cost": "150000000.00",
+    "forecast_final_cost": "330000000.00", "cost_variance": "150000000.00",
+    "planned_progress_percent": "45.00", "actual_progress_percent": "38.00",
+    "schedule_variance": "-7.00",
+    "pending_payments_count": 1, "pending_payments_total": "25000000.00",
+    "as_of_reporting_date": "2026-06-01"
+  }
+```
+
+### Postman workflow (Stage 2 additions)
+
+The same collection now includes a **Projects (Stage 2)** folder covering
+the full requested workflow — Login → Create organization → Create project
+→ Create budget → Add progress update → Create payment → Review payment →
+Retrieve dashboard — plus a **Projects — failure states** folder covering
+401 (no token), 404 (invalid ID / wrong organization), and 400 (invalid
+payload, negative amounts, duplicate project code, invalid status/payment
+transitions). New environment variables: `project_id` and `payment_id` are
+set automatically by the Stage 2 requests' test scripts; set
+`foreign_project_id` / `foreign_payment_id` manually to a project/payment
+ID that belongs to a *different* organization to exercise the IDOR checks
+in the failure-states folder.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` and adjust as needed:
@@ -348,14 +595,17 @@ before using it outside local testing.
 pytest
 ```
 
-This validates, per the Stage 0 + Stage 1 checklist:
+This validates, per the Stage 0 + Stage 1 + Stage 2 checklist:
 
 - Django starts and settings load cleanly
 - the database connection works
 - `/api/health/` responds correctly and is publicly accessible
 - `/admin/` loads and Unfold is correctly installed/configured, with
-  `User`, `Organization`, and `OrganizationMembership` registered
-- no business-domain apps/tables have been prematurely introduced
+  `User`, `Organization`, `OrganizationMembership`, `Project`,
+  `ProjectBudget`, `BudgetItem`, `ProgressUpdate`, and
+  `PaymentApplication` all registered
+- no business-domain apps/tables beyond accounts/organizations/projects
+  have been prematurely introduced
 - OpenAPI schema, Swagger UI, and ReDoc all load
 - JWT settings (lifetimes, rotation, blacklisting) are configured as
   documented above
@@ -374,6 +624,29 @@ This validates, per the Stage 0 + Stage 1 checklist:
   a 404 for a real foreign org is indistinguishable from a 404 for a random
   UUID, and losing membership immediately revokes access
 - cascade behavior and uniqueness constraints hold at the database level
+- **project CRUD**, role-gated create/update/delete, status-transition
+  validation (including terminal states), date-range validation, duplicate
+  project-code rejection (per-organization, not global), and mass-assignment
+  protection (`status` fixed at `PLANNING` on create, `organization`
+  immutable after creation)
+- **budget items and totals**: multi-item sums, zero-item defaults,
+  negative-amount rejection, and cent-exact `Decimal` precision (no
+  floating-point drift)
+- **progress history**: immutability (no update/delete endpoint), duplicate
+  `reporting_date` rejection, `0`–`100` boundary validation, and correct
+  most-recent-first ordering
+- **payment creation and the full review state machine**: every legal
+  transition, every illegal transition (skipping steps, acting on a
+  terminal payment, an unknown decision), the
+  requested/recommended/approved/paid distinction staying genuinely
+  independent, partial payments accumulating correctly to `PAID`, and
+  **`PROJECT_MANAGER` being blocked from reviewing payments** (separation
+  of duties)
+- **dashboard calculations** against a realistic ₦500M-scale financial
+  scenario, plus edge cases (no data, over-budget, ahead-of-schedule)
+- **organization isolation extends through every Stage 2 resource** —
+  project, budget, progress, and payment access are all confirmed to 404
+  (never 403) across organizations, including at the review action
 
 Run with coverage:
 
@@ -397,12 +670,14 @@ OpenAPI schema generation is powered by `drf-spectacular`, configured in
 
 ## Postman
 
-See [Postman workflow](#postman-workflow) above for the full walkthrough.
-Quick version: import both files from `postman/`, select the environment,
-run **Auth → Login** first (it saves your tokens automatically), then run
-whatever else you need.
+See [Postman workflow](#postman-workflow) and
+[Postman workflow (Stage 2 additions)](#postman-workflow-stage-2-additions)
+above for the full walkthrough. Quick version: import both files from
+`postman/`, select the environment, run **Auth → Login** first (it saves
+your tokens automatically), then **Organizations → Create organization**,
+then work through the **Projects (Stage 2)** folder top to bottom.
 
-## Security notes (Stage 0 + Stage 1)
+## Security notes (Stage 0 + Stage 1 + Stage 2)
 
 - `SECRET_KEY` and `ALLOWED_HOSTS` have **no fallback** in production —
   missing them fails fast at startup instead of running insecurely.
@@ -422,15 +697,32 @@ whatever else you need.
   blacklisted refresh tokens (7 day default) — see [JWT approach](#jwt-approach)
   above.
 - **Object-level permissions**: every organization access goes through
-  `apps/organizations/permissions.py`, never an inline role check in a view.
+  `apps/organizations/permissions.py`, never an inline role check in a view;
+  every project/budget/progress/payment access goes through
+  `apps/projects/permissions.py` on the same principle.
 - **Organization isolation / IDOR**: enforced at the queryset level
-  (`organizations_for_user`), not as an after-the-fact permission check —
-  foreign organizations are invisible, not merely forbidden. Covered by an
-  explicit IDOR test suite (`apps/organizations/tests/test_organizations.py::TestCrossOrganizationIDOR`).
+  (`organizations_for_user`, and in Stage 2 `projects_for_user` /
+  `payment_queryset_for_user`), not as an after-the-fact permission check —
+  foreign organizations, projects, and payments are invisible, not merely
+  forbidden. Covered by explicit IDOR test suites in both
+  `apps/organizations/tests/test_organizations.py::TestCrossOrganizationIDOR`
+  and `apps/projects/tests/test_projects.py::TestProjectOrganizationIsolation`
+  / `apps/projects/tests/test_payments.py::TestPaymentIsolation`.
 - **Mass assignment**: `OrganizationSerializer` marks `id`, `slug`,
   `my_role`, `created_at`, `updated_at` read-only — only `name` is
-  client-writable on create/update. Covered by
-  `test_mass_assignment_of_slug_and_role_is_ignored`.
+  client-writable on create/update (`test_mass_assignment_of_slug_and_role_is_ignored`).
+  `ProjectSerializer` fixes `status` at `PLANNING` on create (a client
+  cannot create a project that's already `COMPLETED`) and makes
+  `organization` immutable after creation
+  (`test_status_cannot_be_set_directly_on_create`,
+  `test_organization_is_immutable_after_creation`). `PaymentApplication`'s
+  `amount_recommended`/`amount_approved`/`amount_paid`/`status` are
+  read-only on the serializer entirely — they can only change through
+  `PaymentService.review()`, never a direct field write.
+- **Payment authorization / separation of duties**: `PAYMENT_REVIEW_ROLES`
+  deliberately excludes `PROJECT_MANAGER` — the role that can create and
+  manage a project is not the role permitted to recommend or approve its
+  payments. Verified by `test_project_manager_cannot_review_payments`.
 - **Serializer exposure / sensitive fields**: `CurrentUserSerializer`
   explicitly excludes `password`, `is_superuser`, `is_staff`, and any
   permission fields — it's an allow-list of fields (`fields = [...]`), not
@@ -438,11 +730,12 @@ whatever else you need.
 - **Token expiration**: verified directly — expired access and refresh
   tokens are rejected (`test_me_with_expired_token_is_unauthorized`,
   `test_refresh_with_expired_token_fails`).
-- Organization IDs supplied by the client are never trusted as proof of
-  membership — every request re-derives the caller's role/membership from
-  the database.
+- Organization and project IDs supplied by the client are never trusted as
+  proof of membership or access — every request re-derives the caller's
+  role/membership from the database
+  (`apps.projects.permissions.get_project_role`).
 
-## Architectural decisions (Stage 0 + Stage 1)
+## Architectural decisions (Stage 0 + Stage 1 + Stage 2)
 
 1. **Settings are split by environment** (`base` / `development` /
    `production`) rather than a single `settings.py` with `if DEBUG:`
@@ -492,3 +785,41 @@ whatever else you need.
     settings exist so `apps/*/tasks.py` auto-discovery works the moment
     background jobs are introduced, without a dependency on a running
     broker for tests.
+11. **`PROTECT` at the org→project boundary, `CASCADE` below it** —
+    `Project.organization` uses `on_delete=PROTECT` (an organization must
+    not silently take its financial history down with it, even though
+    there's no organization-delete endpoint today — the constraint
+    documents intent for when one exists). Everything nested under a
+    project (`ProjectBudget`, `BudgetItem`, `ProgressUpdate`,
+    `PaymentApplication`) uses `CASCADE`, because none of those records
+    have meaning independent of their project.
+12. **Budget totals are always computed, never stored** — `ProjectBudget`
+    has no total fields; `apps.projects.selectors._budget_totals` sums
+    `BudgetItem` rows on every read. A stored, cached total could drift
+    out of sync with an edited or added line item; a computed one cannot.
+13. **`PaymentService.review()` as an explicit state machine** — rather
+    than a generic `PATCH /api/payments/{id}/` that lets a client set
+    `status` directly, every transition is a named `decision` validated
+    against `PAYMENT_STATUS_TRANSITIONS`. This makes illegal transitions
+    (approve before recommend, review a paid payment) impossible to reach
+    by construction, not just by convention, and keeps the four money
+    fields' business rules (recommended ≤ requested, approved ≤
+    recommended, cumulative paid ≤ approved) in one auditable place.
+14. **Payment review roles are narrower than project write roles** —
+    `PROJECT_WRITE_ROLES` (who can create/manage a project) and
+    `PAYMENT_REVIEW_ROLES` (who can review its payments) are two distinct
+    sets, not one. `PROJECT_MANAGER` is deliberately excluded from the
+    latter as a separation-of-duties control, even though it's included in
+    the former.
+15. **Progress updates have no update/delete endpoint** — immutability is
+    enforced by what the `ProjectViewSet.progress` action supports (GET,
+    POST only), not by a soft convention. A project's progress history can
+    always be trusted precisely because nothing in the API can rewrite it.
+16. **`ProjectSerializer` flips which field is read-only based on whether
+    it's creating or updating** — `organization` is writable (and
+    queryset-restricted to the requester's own orgs) only on create, then
+    permanently read-only; `status` is read-only on create (always starts
+    `PLANNING`) but writable on update, where `services.update_project`
+    validates the transition. Both directions of this — writable-then-locked
+    and locked-then-writable — are defense against mass assignment, just
+    applied to different fields at different times in a project's life.
