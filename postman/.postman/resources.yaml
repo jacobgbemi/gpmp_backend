@@ -1,0 +1,9 @@
+# Use this workspace to collaborate
+workspace:
+  id: 6f89a626-2d29-4b97-8620-07464a72e9ea
+
+localResources:
+  collections:
+    - ../GlintPM-Private-Local.postman_collection.json
+  environments:
+    - ../GlintPM-Private-Local.postman_environment.json

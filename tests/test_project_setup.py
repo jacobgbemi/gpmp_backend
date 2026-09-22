@@ -13,6 +13,22 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 
+"""
+Foundation tests for the backend project as a whole.
+
+These verify the project boots correctly and that the security foundation
+(custom user, JWT, Unfold registrations) plus the expected set of business
+apps are wired in — not business logic itself, which is covered in each
+app's own tests/ package.
+"""
+
+import pytest
+from django.apps import apps
+from django.conf import settings
+from rest_framework import status
+from rest_framework.test import APIClient
+
+
 class TestDjangoBootsCorrectly:
     def test_settings_module_is_loaded(self):
         assert settings.configured
@@ -34,20 +50,17 @@ class TestDjangoBootsCorrectly:
 
     def test_no_premature_business_domain_apps(self):
         """
-        Stage 1 only adds accounts + organizations. Projects, payments,
-        risks, variations, inspections, documents, and reports are still
-        out of scope.
+        Stage 2 adds accounts + organizations + projects (which covers
+        budgets, progress, and payments — see apps/projects/models.py).
+        Variations, risks, inspections, documents, reports, and
+        notifications are still out of scope until their own stages.
         """
         forbidden_labels = {
-            "projects",
-            "payments",
-            "risks",
             "variations",
+            "risks",
             "inspections",
             "documents",
             "reports",
-            "costs",
-            "progress",
             "contractors",
             "notifications",
             "audit",
@@ -55,9 +68,11 @@ class TestDjangoBootsCorrectly:
         installed_labels = {cfg.label for cfg in apps.get_app_configs()}
         assert installed_labels.isdisjoint(forbidden_labels)
 
-    def test_expected_stage1_apps_are_installed(self):
+    def test_expected_stage2_apps_are_installed(self):
         installed_labels = {cfg.label for cfg in apps.get_app_configs()}
-        assert {"core", "accounts", "organizations"}.issubset(installed_labels)
+        assert {"core", "accounts", "organizations", "projects"}.issubset(
+            installed_labels
+        )
 
 
 @pytest.mark.django_db
