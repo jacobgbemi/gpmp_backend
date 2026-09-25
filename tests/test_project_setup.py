@@ -1,21 +1,6 @@
 """
 Foundation tests for the backend project as a whole.
 
-These verify the project boots correctly and that Stage 1's security
-foundation (custom user, JWT, Unfold registrations) is wired in — not
-business logic, which is covered in each app's own tests/ package.
-"""
-
-import pytest
-from django.apps import apps
-from django.conf import settings
-from rest_framework import status
-from rest_framework.test import APIClient
-
-
-"""
-Foundation tests for the backend project as a whole.
-
 These verify the project boots correctly and that the security foundation
 (custom user, JWT, Unfold registrations) plus the expected set of business
 apps are wired in — not business logic itself, which is covered in each
@@ -50,14 +35,11 @@ class TestDjangoBootsCorrectly:
 
     def test_no_premature_business_domain_apps(self):
         """
-        Stage 2 adds accounts + organizations + projects (which covers
-        budgets, progress, and payments — see apps/projects/models.py).
-        Variations, risks, inspections, documents, reports, and
+        Stage 3 adds variations + risks (which also covers issues — see
+        apps/risks/models.py). Inspections, documents, reports, and
         notifications are still out of scope until their own stages.
         """
         forbidden_labels = {
-            "variations",
-            "risks",
             "inspections",
             "documents",
             "reports",
@@ -68,11 +50,16 @@ class TestDjangoBootsCorrectly:
         installed_labels = {cfg.label for cfg in apps.get_app_configs()}
         assert installed_labels.isdisjoint(forbidden_labels)
 
-    def test_expected_stage2_apps_are_installed(self):
+    def test_expected_stage3_apps_are_installed(self):
         installed_labels = {cfg.label for cfg in apps.get_app_configs()}
-        assert {"core", "accounts", "organizations", "projects"}.issubset(
-            installed_labels
-        )
+        assert {
+            "core",
+            "accounts",
+            "organizations",
+            "projects",
+            "variations",
+            "risks",
+        }.issubset(installed_labels)
 
 
 @pytest.mark.django_db
@@ -124,6 +111,38 @@ class TestAdminAndUnfold:
 
         assert admin.site.is_registered(Organization)
         assert admin.site.is_registered(OrganizationMembership)
+
+    def test_project_models_are_registered_in_admin(self):
+        from django.contrib import admin
+
+        from apps.projects.models import (
+            BudgetItem,
+            PaymentApplication,
+            ProgressUpdate,
+            Project,
+            ProjectBudget,
+        )
+
+        assert admin.site.is_registered(Project)
+        assert admin.site.is_registered(ProjectBudget)
+        assert admin.site.is_registered(BudgetItem)
+        assert admin.site.is_registered(ProgressUpdate)
+        assert admin.site.is_registered(PaymentApplication)
+
+    def test_variation_model_is_registered_in_admin(self):
+        from django.contrib import admin
+
+        from apps.variations.models import Variation
+
+        assert admin.site.is_registered(Variation)
+
+    def test_risk_and_issue_models_are_registered_in_admin(self):
+        from django.contrib import admin
+
+        from apps.risks.models import Issue, Risk
+
+        assert admin.site.is_registered(Risk)
+        assert admin.site.is_registered(Issue)
 
 
 @pytest.mark.django_db

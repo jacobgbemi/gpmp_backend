@@ -19,6 +19,11 @@ from apps.projects.models import (
     Project,
     ProjectBudget,
 )
+from apps.variations.models import (
+    VARIATION_APPROVED_STATUSES,
+    VARIATION_PENDING_STATUSES,
+    Variation,
+)
 
 ZERO = Decimal("0.00")
 _MONEY = DecimalField(max_digits=18, decimal_places=2)
@@ -96,18 +101,42 @@ def _budget_totals(project: Project) -> dict[str, Decimal]:
     return {key: value or ZERO for key, value in totals.items()}
 
 
+def _variation_totals(project: Project) -> dict[str, Decimal]:
+    """
+    See README "approved variation rule": only APPROVED/IMPLEMENTED/CLOSED
+    variations count as real, approved financial impact.
+    PROPOSED/UNDER_REVIEW variations are surfaced separately as *exposure*
+    — money the project might cost, never money it already does.
+    """
+    variations = Variation.objects.filter(project=project)
+    approved_total = variations.filter(status__in=VARIATION_APPROVED_STATUSES).aggregate(
+        total=Coalesce(Sum("approved_amount"), ZERO, output_field=_MONEY)
+    )["total"]
+    pending_total = variations.filter(status__in=VARIATION_PENDING_STATUSES).aggregate(
+        total=Coalesce(Sum("estimated_amount"), ZERO, output_field=_MONEY)
+    )["total"]
+    return {"approved_variations_total": approved_total, "pending_variations_exposure": pending_total}
+
+
 def project_dashboard(project: Project) -> dict:
     """
     Compute the owner-facing dashboard for a project.
 
     Calculation rules (see README "dashboard calculation rules" for the
     full rationale):
-      - forecast_final_cost = actual_spend + committed_cost
-      - cost_variance        = approved_budget - forecast_final_cost
-                                (positive => under budget, negative => over)
-      - schedule_variance    = actual_progress - planned_progress
-                                (positive => ahead, negative => behind)
-      - pending_payments     = payments not yet approved, rejected, or paid
+      - forecast_final_cost      = actual_spend + committed_cost
+      - cost_variance            = approved_budget - forecast_final_cost
+                                    (positive => under budget, negative => over)
+      - schedule_variance        = actual_progress - planned_progress
+                                    (positive => ahead, negative => behind)
+      - pending_payments         = payments not yet approved, rejected, or paid
+      - approved_variations_total = Σ approved_amount of APPROVED/IMPLEMENTED/
+                                     CLOSED variations only (see README
+                                     "approved variation rule")
+      - pending_variations_exposure = Σ estimated_amount of PROPOSED/
+                                       UNDER_REVIEW variations — potential,
+                                       not-yet-approved cost exposure
+      - revised_approved_budget  = approved_budget + approved_variations_total
     """
     totals = _budget_totals(project)
     original_budget = totals["original_total"]
@@ -116,6 +145,9 @@ def project_dashboard(project: Project) -> dict:
     committed_cost = totals["committed_total"]
     forecast_final_cost = actual_spend + committed_cost
     cost_variance = approved_budget - forecast_final_cost
+
+    variation_totals = _variation_totals(project)
+    revised_approved_budget = approved_budget + variation_totals["approved_variations_total"]
 
     latest = latest_progress_update(project)
     planned_progress = latest.planned_progress_percent if latest else ZERO
@@ -134,6 +166,9 @@ def project_dashboard(project: Project) -> dict:
         "committed_cost": committed_cost,
         "forecast_final_cost": forecast_final_cost,
         "cost_variance": cost_variance,
+        "approved_variations_total": variation_totals["approved_variations_total"],
+        "pending_variations_exposure": variation_totals["pending_variations_exposure"],
+        "revised_approved_budget": revised_approved_budget,
         "planned_progress_percent": planned_progress,
         "actual_progress_percent": actual_progress,
         "schedule_variance": schedule_variance,

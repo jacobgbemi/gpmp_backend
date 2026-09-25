@@ -25,6 +25,12 @@ from apps.projects.serializers import (
     ProjectBudgetSerializer,
     ProjectSerializer,
 )
+from apps.risks import selectors as risk_selectors
+from apps.risks import services as risk_services
+from apps.risks.serializers import IssueSerializer, RiskSerializer
+from apps.variations import selectors as variation_selectors
+from apps.variations import services as variation_services
+from apps.variations.serializers import VariationSerializer
 
 
 @extend_schema(tags=["projects"])
@@ -49,6 +55,12 @@ class ProjectViewSet(
     POST   /api/projects/{id}/progress/   append a progress update
     GET    /api/projects/{id}/payments/
     POST   /api/projects/{id}/payments/   submit a payment application
+    GET    /api/projects/{id}/variations/
+    POST   /api/projects/{id}/variations/ propose a variation
+    GET    /api/projects/{id}/risks/
+    POST   /api/projects/{id}/risks/      log a risk
+    GET    /api/projects/{id}/issues/
+    POST   /api/projects/{id}/issues/     log an issue
     GET    /api/projects/{id}/dashboard/
 
     Projects in an organization the user doesn't belong to are absent from
@@ -212,6 +224,108 @@ class ProjectViewSet(
         project = self.get_object()
         data = selectors.project_dashboard(project)
         return Response(DashboardSerializer(data).data)
+
+    @extend_schema(
+        methods=["GET"], responses=VariationSerializer(many=True), tags=["projects"]
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=VariationSerializer,
+        responses={201: VariationSerializer},
+        tags=["projects"],
+    )
+    @action(detail=True, methods=["get", "post"], url_path="variations")
+    def variations(self, request, pk=None):
+        project = self.get_object()
+
+        if request.method == "POST":
+            serializer = VariationSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            variation = variation_services.create_variation(
+                project=project, created_by=request.user, **serializer.validated_data
+            )
+            return Response(
+                VariationSerializer(variation).data, status=status.HTTP_201_CREATED
+            )
+
+        queryset = variation_selectors.variations_for_project(project)
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        category_filter = request.query_params.get("category")
+        if category_filter:
+            queryset = queryset.filter(category=category_filter)
+        page = self.paginate_queryset(queryset)
+        serializer = VariationSerializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(methods=["GET"], responses=RiskSerializer(many=True), tags=["projects"])
+    @extend_schema(
+        methods=["POST"],
+        request=RiskSerializer,
+        responses={201: RiskSerializer},
+        tags=["projects"],
+    )
+    @action(detail=True, methods=["get", "post"], url_path="risks")
+    def risks(self, request, pk=None):
+        project = self.get_object()
+
+        if request.method == "POST":
+            serializer = RiskSerializer(data=request.data, context={"project": project})
+            serializer.is_valid(raise_exception=True)
+            risk = risk_services.create_risk(project=project, **serializer.validated_data)
+            return Response(RiskSerializer(risk).data, status=status.HTTP_201_CREATED)
+
+        queryset = risk_selectors.risks_for_project(project)
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        category_filter = request.query_params.get("category")
+        if category_filter:
+            queryset = queryset.filter(category=category_filter)
+        owner_filter = request.query_params.get("owner")
+        if owner_filter:
+            queryset = queryset.filter(owner_id=owner_filter)
+        page = self.paginate_queryset(queryset)
+        serializer = RiskSerializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(methods=["GET"], responses=IssueSerializer(many=True), tags=["projects"])
+    @extend_schema(
+        methods=["POST"],
+        request=IssueSerializer,
+        responses={201: IssueSerializer},
+        tags=["projects"],
+    )
+    @action(detail=True, methods=["get", "post"], url_path="issues")
+    def issues(self, request, pk=None):
+        project = self.get_object()
+
+        if request.method == "POST":
+            serializer = IssueSerializer(data=request.data, context={"project": project})
+            serializer.is_valid(raise_exception=True)
+            issue = risk_services.create_issue(project=project, **serializer.validated_data)
+            return Response(IssueSerializer(issue).data, status=status.HTTP_201_CREATED)
+
+        queryset = risk_selectors.issues_for_project(project)
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        severity_filter = request.query_params.get("severity")
+        if severity_filter:
+            queryset = queryset.filter(severity=severity_filter)
+        owner_filter = request.query_params.get("owner")
+        if owner_filter:
+            queryset = queryset.filter(owner_id=owner_filter)
+        page = self.paginate_queryset(queryset)
+        serializer = IssueSerializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
 
 @extend_schema(tags=["payments"])

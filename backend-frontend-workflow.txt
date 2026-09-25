@@ -14,6 +14,10 @@ ACTIVATE DEMO
 ---------------
 python manage.py shell -c "import scripts.seed_demo_data as s; s.run()"
 
+Demo data seeded.
+  Login:        demo@glintpm.dev / DemoPass123!
+  Organization: GlintPM Private Demo (some-uuid)
+  Project:      LRL-001 (some-uuid)
 
 ---------------
 MIGRATIONS

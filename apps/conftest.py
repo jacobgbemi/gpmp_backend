@@ -7,13 +7,18 @@ fixtures — pytest resolves conftest.py by walking up from the test file to
 the rootdir.
 """
 
+import itertools
+from decimal import Decimal
+
 import pytest
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.organizations.models import Organization, OrganizationMembership, Role
+from apps.projects.models import Project, ProjectBudget, ProjectType
 
 DEFAULT_PASSWORD = "StrongPass123!"
+_project_code_counter = itertools.count(1)
 
 
 @pytest.fixture
@@ -79,3 +84,27 @@ def auth_client():
         return client, response.data
 
     return _auth_client
+
+
+@pytest.fixture
+def make_project(db):
+    def _make_project(organization, **kwargs):
+        kwargs.setdefault("name", "Lekki Residence")
+        kwargs.setdefault("project_code", f"PRJ-{next(_project_code_counter):04d}")
+        kwargs.setdefault("project_type", ProjectType.RESIDENTIAL)
+        kwargs.setdefault("contract_value", Decimal("500000000.00"))
+        project = Project.objects.create(organization=organization, **kwargs)
+        ProjectBudget.objects.get_or_create(project=project)
+        return project
+
+    return _make_project
+
+
+@pytest.fixture
+def project_a(make_project, org_a):
+    return make_project(org_a)
+
+
+@pytest.fixture
+def project_b(make_project, org_b):
+    return make_project(org_b)
