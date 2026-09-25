@@ -58,9 +58,13 @@ VARIATION_PENDING_STATUSES = frozenset(
 # enforces its own narrower authority — it is deliberately NOT reachable
 # through this table.
 VARIATION_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
-    VariationStatus.PROPOSED: frozenset({VariationStatus.UNDER_REVIEW, VariationStatus.REJECTED}),
+    VariationStatus.PROPOSED: frozenset(
+        {VariationStatus.UNDER_REVIEW, VariationStatus.REJECTED}
+    ),
     VariationStatus.UNDER_REVIEW: frozenset({VariationStatus.REJECTED}),
-    VariationStatus.APPROVED: frozenset({VariationStatus.IMPLEMENTED, VariationStatus.CLOSED}),
+    VariationStatus.APPROVED: frozenset(
+        {VariationStatus.IMPLEMENTED, VariationStatus.CLOSED}
+    ),
     VariationStatus.REJECTED: frozenset({VariationStatus.CLOSED}),
     VariationStatus.IMPLEMENTED: frozenset({VariationStatus.CLOSED}),
 }
@@ -75,7 +79,9 @@ class Variation(BaseModel):
     description = models.TextField(blank=True)
     reason = models.TextField(blank=True)
     category = models.CharField(
-        max_length=32, choices=VariationCategory.choices, default=VariationCategory.OTHER
+        max_length=32,
+        choices=VariationCategory.choices,
+        default=VariationCategory.OTHER,
     )
 
     # Three independent amounts — never collapsed — mirroring the
@@ -84,10 +90,18 @@ class Variation(BaseModel):
         max_digits=16, decimal_places=2, validators=MONEY_VALIDATORS
     )
     estimated_amount = models.DecimalField(
-        max_digits=16, decimal_places=2, validators=MONEY_VALIDATORS, null=True, blank=True
+        max_digits=16,
+        decimal_places=2,
+        validators=MONEY_VALIDATORS,
+        null=True,
+        blank=True,
     )
     approved_amount = models.DecimalField(
-        max_digits=16, decimal_places=2, validators=MONEY_VALIDATORS, null=True, blank=True
+        max_digits=16,
+        decimal_places=2,
+        validators=MONEY_VALIDATORS,
+        null=True,
+        blank=True,
     )
 
     status = models.CharField(

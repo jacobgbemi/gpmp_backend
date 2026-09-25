@@ -27,7 +27,9 @@ class TestDashboardCalculations:
         assert response.data["as_of_reporting_date"] is None
         assert response.data["pending_payments_count"] == 0
 
-    def test_realistic_500m_naira_project_scenario(self, user_a, project_a, auth_client):
+    def test_realistic_500m_naira_project_scenario(
+        self, user_a, project_a, auth_client
+    ):
         """
         A ₦500,000,000 residential project, partway through construction:
         - Approved budget: ₦480,000,000 across two cost categories
@@ -127,7 +129,9 @@ class TestDashboardCalculations:
 
         assert response.data["schedule_variance"] == "10.00"
 
-    def test_dashboard_uses_latest_progress_update_only(self, user_a, project_a, auth_client):
+    def test_dashboard_uses_latest_progress_update_only(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         client.post(
             f"/api/projects/{project_a.id}/progress/",
@@ -191,7 +195,9 @@ class TestDashboardCalculations:
         assert response.data["pending_payments_total"] == "5000000.00"
         assert submitted  # sanity: fixture created successfully
 
-    def test_foreign_org_user_cannot_view_dashboard(self, user_a, project_b, auth_client):
+    def test_foreign_org_user_cannot_view_dashboard(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get(f"/api/projects/{project_b.id}/dashboard/")

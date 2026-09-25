@@ -62,7 +62,9 @@ class TestBudgetItemCreation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_viewer_cannot_add_budget_item(self, org_a, project_a, make_user, auth_client):
+    def test_viewer_cannot_add_budget_item(
+        self, org_a, project_a, make_user, auth_client
+    ):
         viewer = make_user(email="viewer@example.com")
         org_services.add_member(organization=org_a, user=viewer, role=Role.VIEWER)
         client, _ = auth_client(viewer)
@@ -75,7 +77,9 @@ class TestBudgetItemCreation:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_foreign_org_user_cannot_add_budget_item(self, user_a, project_b, auth_client):
+    def test_foreign_org_user_cannot_add_budget_item(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.post(

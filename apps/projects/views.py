@@ -256,12 +256,16 @@ class ProjectViewSet(
         if category_filter:
             queryset = queryset.filter(category=category_filter)
         page = self.paginate_queryset(queryset)
-        serializer = VariationSerializer(page if page is not None else queryset, many=True)
+        serializer = VariationSerializer(
+            page if page is not None else queryset, many=True
+        )
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
-    @extend_schema(methods=["GET"], responses=RiskSerializer(many=True), tags=["projects"])
+    @extend_schema(
+        methods=["GET"], responses=RiskSerializer(many=True), tags=["projects"]
+    )
     @extend_schema(
         methods=["POST"],
         request=RiskSerializer,
@@ -275,7 +279,9 @@ class ProjectViewSet(
         if request.method == "POST":
             serializer = RiskSerializer(data=request.data, context={"project": project})
             serializer.is_valid(raise_exception=True)
-            risk = risk_services.create_risk(project=project, **serializer.validated_data)
+            risk = risk_services.create_risk(
+                project=project, **serializer.validated_data
+            )
             return Response(RiskSerializer(risk).data, status=status.HTTP_201_CREATED)
 
         queryset = risk_selectors.risks_for_project(project)
@@ -294,7 +300,9 @@ class ProjectViewSet(
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
-    @extend_schema(methods=["GET"], responses=IssueSerializer(many=True), tags=["projects"])
+    @extend_schema(
+        methods=["GET"], responses=IssueSerializer(many=True), tags=["projects"]
+    )
     @extend_schema(
         methods=["POST"],
         request=IssueSerializer,
@@ -306,9 +314,13 @@ class ProjectViewSet(
         project = self.get_object()
 
         if request.method == "POST":
-            serializer = IssueSerializer(data=request.data, context={"project": project})
+            serializer = IssueSerializer(
+                data=request.data, context={"project": project}
+            )
             serializer.is_valid(raise_exception=True)
-            issue = risk_services.create_issue(project=project, **serializer.validated_data)
+            issue = risk_services.create_issue(
+                project=project, **serializer.validated_data
+            )
             return Response(IssueSerializer(issue).data, status=status.HTTP_201_CREATED)
 
         queryset = risk_selectors.issues_for_project(project)

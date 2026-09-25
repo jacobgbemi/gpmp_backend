@@ -46,7 +46,9 @@ class TestPaymentCreation:
         assert response.data["amount_approved"] is None
         assert response.data["amount_paid"] == "0.00"
 
-    def test_application_numbers_increment_per_project(self, user_a, project_a, auth_client):
+    def test_application_numbers_increment_per_project(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         first = client.post(
@@ -74,7 +76,9 @@ class TestPaymentCreation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_viewer_cannot_create_payment(self, org_a, project_a, make_user, auth_client):
+    def test_viewer_cannot_create_payment(
+        self, org_a, project_a, make_user, auth_client
+    ):
         viewer = make_user(email="viewer@example.com")
         org_services.add_member(organization=org_a, user=viewer, role=Role.VIEWER)
         client, _ = auth_client(viewer)
@@ -87,7 +91,9 @@ class TestPaymentCreation:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_foreign_org_user_cannot_create_payment(self, user_a, project_b, auth_client):
+    def test_foreign_org_user_cannot_create_payment(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.post(
@@ -98,7 +104,9 @@ class TestPaymentCreation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_no_payment_can_exist_without_a_project(self, user_a, project_a, auth_client):
+    def test_no_payment_can_exist_without_a_project(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         client.post(
             f"/api/projects/{project_a.id}/payments/",
@@ -140,7 +148,9 @@ class TestAmountDistinction:
         assert response.data["amount_approved"] == "17000000.00"
         assert response.data["amount_paid"] == "10000000.00"
 
-    def test_recommended_can_be_less_than_requested(self, user_a, project_a, auth_client):
+    def test_recommended_can_be_less_than_requested(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         create = client.post(
             f"/api/projects/{project_a.id}/payments/",
@@ -240,8 +250,14 @@ class TestPaymentReviewTransitions:
         payment_id = self._create(client, project_a)
 
         assert _review(client, payment_id, "START_REVIEW").status_code == 200
-        assert _review(client, payment_id, "RECOMMEND", amount="9000000.00").status_code == 200
-        assert _review(client, payment_id, "APPROVE", amount="9000000.00").status_code == 200
+        assert (
+            _review(client, payment_id, "RECOMMEND", amount="9000000.00").status_code
+            == 200
+        )
+        assert (
+            _review(client, payment_id, "APPROVE", amount="9000000.00").status_code
+            == 200
+        )
         response = _review(client, payment_id, "RECORD_PAYMENT", amount="9000000.00")
         assert response.status_code == 200
         assert response.data["status"] == PaymentStatus.PAID
@@ -361,7 +377,9 @@ class TestPaymentReviewPermissions:
         self, org_a, project_a, make_user, auth_client
     ):
         controls = make_user(email="controls@example.com")
-        org_services.add_member(organization=org_a, user=controls, role=Role.PROJECT_CONTROLS)
+        org_services.add_member(
+            organization=org_a, user=controls, role=Role.PROJECT_CONTROLS
+        )
         client, _ = auth_client(controls)
         payment_id = client.post(
             f"/api/projects/{project_a.id}/payments/",
@@ -373,8 +391,12 @@ class TestPaymentReviewPermissions:
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_organization_admin_can_review_payments(self, user_a, project_a, auth_client):
-        client, _ = auth_client(user_a)  # org_a fixture makes user_a an ORGANIZATION_ADMIN
+    def test_organization_admin_can_review_payments(
+        self, user_a, project_a, auth_client
+    ):
+        client, _ = auth_client(
+            user_a
+        )  # org_a fixture makes user_a an ORGANIZATION_ADMIN
         payment_id = client.post(
             f"/api/projects/{project_a.id}/payments/",
             {"amount_requested": "1000.00"},
@@ -410,7 +432,9 @@ class TestPaymentReviewPermissions:
 
 @pytest.mark.django_db
 class TestPaymentIsolation:
-    def test_cannot_retrieve_foreign_org_payment(self, user_a, project_b, user_b, auth_client):
+    def test_cannot_retrieve_foreign_org_payment(
+        self, user_a, project_b, user_b, auth_client
+    ):
         client_b, _ = auth_client(user_b)
         payment_id = client_b.post(
             f"/api/projects/{project_b.id}/payments/",
@@ -423,7 +447,9 @@ class TestPaymentIsolation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_review_foreign_org_payment(self, user_a, project_b, user_b, auth_client):
+    def test_cannot_review_foreign_org_payment(
+        self, user_a, project_b, user_b, auth_client
+    ):
         client_b, _ = auth_client(user_b)
         payment_id = client_b.post(
             f"/api/projects/{project_b.id}/payments/",
@@ -436,7 +462,9 @@ class TestPaymentIsolation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_list_foreign_org_project_payments(self, user_a, project_b, auth_client):
+    def test_cannot_list_foreign_org_project_payments(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get(f"/api/projects/{project_b.id}/payments/")

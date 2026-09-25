@@ -78,7 +78,9 @@ class TestProjectCRUD:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Project.objects.filter(id=project_a.id).exists()
 
-    def test_delete_blocked_once_a_payment_is_approved(self, user_a, project_a, auth_client):
+    def test_delete_blocked_once_a_payment_is_approved(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         payment_id = client.post(
             f"/api/projects/{project_a.id}/payments/",
@@ -86,7 +88,9 @@ class TestProjectCRUD:
             format="json",
         ).data["id"]
         client.post(
-            f"/api/payments/{payment_id}/review/", {"decision": "START_REVIEW"}, format="json"
+            f"/api/payments/{payment_id}/review/",
+            {"decision": "START_REVIEW"},
+            format="json",
         )
         client.post(
             f"/api/payments/{payment_id}/review/",
@@ -150,14 +154,18 @@ class TestProjectCRUD:
 
 @pytest.mark.django_db
 class TestProjectOrganizationIsolation:
-    def test_user_cannot_retrieve_foreign_org_project(self, user_a, project_b, auth_client):
+    def test_user_cannot_retrieve_foreign_org_project(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get(f"/api/projects/{project_b.id}/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_user_cannot_patch_foreign_org_project(self, user_a, project_b, auth_client):
+    def test_user_cannot_patch_foreign_org_project(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
         original_name = project_b.name
 
@@ -169,7 +177,9 @@ class TestProjectOrganizationIsolation:
         project_b.refresh_from_db()
         assert project_b.name == original_name
 
-    def test_user_cannot_delete_foreign_org_project(self, user_a, project_b, auth_client):
+    def test_user_cannot_delete_foreign_org_project(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.delete(f"/api/projects/{project_b.id}/")
@@ -177,7 +187,9 @@ class TestProjectOrganizationIsolation:
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert Project.objects.filter(id=project_b.id).exists()
 
-    def test_cannot_create_project_in_foreign_organization(self, user_a, org_b, auth_client):
+    def test_cannot_create_project_in_foreign_organization(
+        self, user_a, org_b, auth_client
+    ):
         """
         user_a is not a member of org_b at all, so org_b is not even a
         valid choice — this is a 400 (invalid choice), not a 403/404, since
@@ -256,7 +268,9 @@ class TestProjectRolePermissions:
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_viewer_cannot_patch_project(self, org_a, project_a, make_user, auth_client):
+    def test_viewer_cannot_patch_project(
+        self, org_a, project_a, make_user, auth_client
+    ):
         viewer = make_user(email="viewer3@example.com")
         org_services.add_member(organization=org_a, user=viewer, role=Role.VIEWER)
         client, _ = auth_client(viewer)
@@ -287,7 +301,9 @@ class TestProjectRolePermissions:
 
     def test_project_controls_can_create_project(self, org_a, make_user, auth_client):
         controls = make_user(email="controls@example.com")
-        org_services.add_member(organization=org_a, user=controls, role=Role.PROJECT_CONTROLS)
+        org_services.add_member(
+            organization=org_a, user=controls, role=Role.PROJECT_CONTROLS
+        )
         client, _ = auth_client(controls)
 
         response = client.post(
@@ -305,7 +321,9 @@ class TestProjectRolePermissions:
 
     def test_consultant_cannot_create_project(self, org_a, make_user, auth_client):
         consultant = make_user(email="consultant@example.com")
-        org_services.add_member(organization=org_a, user=consultant, role=Role.CONSULTANT)
+        org_services.add_member(
+            organization=org_a, user=consultant, role=Role.CONSULTANT
+        )
         client, _ = auth_client(consultant)
 
         response = client.post(
@@ -375,7 +393,9 @@ class TestProjectMassAssignment:
 
 @pytest.mark.django_db
 class TestProjectDateValidation:
-    def test_planned_end_before_planned_start_rejected(self, user_a, org_a, auth_client):
+    def test_planned_end_before_planned_start_rejected(
+        self, user_a, org_a, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.post(
@@ -458,8 +478,12 @@ class TestProjectStatusTransitions:
 
     def test_completed_is_terminal(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
-        client.patch(f"/api/projects/{project_a.id}/", {"status": "ACTIVE"}, format="json")
-        client.patch(f"/api/projects/{project_a.id}/", {"status": "COMPLETED"}, format="json")
+        client.patch(
+            f"/api/projects/{project_a.id}/", {"status": "ACTIVE"}, format="json"
+        )
+        client.patch(
+            f"/api/projects/{project_a.id}/", {"status": "COMPLETED"}, format="json"
+        )
 
         response = client.patch(
             f"/api/projects/{project_a.id}/", {"status": "ACTIVE"}, format="json"
@@ -469,7 +493,9 @@ class TestProjectStatusTransitions:
 
     def test_cancelled_is_terminal(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
-        client.patch(f"/api/projects/{project_a.id}/", {"status": "CANCELLED"}, format="json")
+        client.patch(
+            f"/api/projects/{project_a.id}/", {"status": "CANCELLED"}, format="json"
+        )
 
         response = client.patch(
             f"/api/projects/{project_a.id}/", {"status": "ACTIVE"}, format="json"
@@ -479,7 +505,9 @@ class TestProjectStatusTransitions:
 
     def test_active_can_go_on_hold_and_back(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
-        client.patch(f"/api/projects/{project_a.id}/", {"status": "ACTIVE"}, format="json")
+        client.patch(
+            f"/api/projects/{project_a.id}/", {"status": "ACTIVE"}, format="json"
+        )
 
         on_hold = client.patch(
             f"/api/projects/{project_a.id}/", {"status": "ON_HOLD"}, format="json"
@@ -563,7 +591,9 @@ class TestProjectValidation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_contract_value_preserves_decimal_precision(self, user_a, org_a, auth_client):
+    def test_contract_value_preserves_decimal_precision(
+        self, user_a, org_a, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.post(

@@ -47,7 +47,9 @@ class TestIssueCreation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_owner_must_be_organization_member(self, user_a, project_a, user_b, auth_client):
+    def test_owner_must_be_organization_member(
+        self, user_a, project_a, user_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = _create_issue(client, project_a, str(user_b.id))
@@ -88,7 +90,9 @@ class TestIssueStatusTransitions:
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_resolve_without_resolution_text_rejected(self, user_a, project_a, auth_client):
+    def test_resolve_without_resolution_text_rejected(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         issue_id = _create_issue(client, project_a, str(user_a.id)).data["id"]
 
@@ -98,7 +102,9 @@ class TestIssueStatusTransitions:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_resolve_with_resolution_text_succeeds(self, user_a, project_a, auth_client):
+    def test_resolve_with_resolution_text_succeeds(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         issue_id = _create_issue(client, project_a, str(user_a.id)).data["id"]
 
@@ -111,7 +117,9 @@ class TestIssueStatusTransitions:
         assert response.status_code == status.HTTP_200_OK
         assert response.data["status"] == "RESOLVED"
 
-    def test_resolved_can_be_reopened_to_in_progress(self, user_a, project_a, auth_client):
+    def test_resolved_can_be_reopened_to_in_progress(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         issue_id = _create_issue(client, project_a, str(user_a.id)).data["id"]
         client.patch(
@@ -183,7 +191,9 @@ class TestIssueFiltering:
     def test_filter_by_status(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
         _create_issue(client, project_a, str(user_a.id), title="A")
-        resolved_id = _create_issue(client, project_a, str(user_a.id), title="B").data["id"]
+        resolved_id = _create_issue(client, project_a, str(user_a.id), title="B").data[
+            "id"
+        ]
         client.patch(
             f"/api/issues/{resolved_id}/",
             {"status": "RESOLVED", "resolution": "done"},
@@ -202,7 +212,9 @@ class TestIssueFiltering:
 
 @pytest.mark.django_db
 class TestIssueIsolation:
-    def test_cannot_retrieve_foreign_org_issue(self, user_a, project_b, user_b, auth_client):
+    def test_cannot_retrieve_foreign_org_issue(
+        self, user_a, project_b, user_b, auth_client
+    ):
         client_b, _ = auth_client(user_b)
         issue_id = _create_issue(client_b, project_b, str(user_b.id)).data["id"]
 
@@ -211,7 +223,9 @@ class TestIssueIsolation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_update_foreign_org_issue(self, user_a, project_b, user_b, auth_client):
+    def test_cannot_update_foreign_org_issue(
+        self, user_a, project_b, user_b, auth_client
+    ):
         client_b, _ = auth_client(user_b)
         issue_id = _create_issue(client_b, project_b, str(user_b.id)).data["id"]
 
@@ -222,7 +236,9 @@ class TestIssueIsolation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_list_foreign_org_project_issues(self, user_a, project_b, auth_client):
+    def test_cannot_list_foreign_org_project_issues(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get(f"/api/projects/{project_b.id}/issues/")

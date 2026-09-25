@@ -29,7 +29,9 @@ _APPROVABLE_FROM = frozenset({VariationStatus.PROPOSED, VariationStatus.UNDER_RE
 def create_variation(*, project, created_by, **fields) -> Variation:
     fields.setdefault("requested_date", timezone.now().date())
     try:
-        return Variation.objects.create(project=project, created_by=created_by, **fields)
+        return Variation.objects.create(
+            project=project, created_by=created_by, **fields
+        )
     except IntegrityError as exc:
         raise ValidationError(
             {
@@ -72,7 +74,9 @@ def update_variation(*, variation: Variation, data: dict) -> Variation:
         variation.save()
     except DjangoValidationError as exc:
         raise ValidationError(
-            exc.message_dict if hasattr(exc, "message_dict") else {"detail": exc.messages}
+            exc.message_dict
+            if hasattr(exc, "message_dict")
+            else {"detail": exc.messages}
         ) from exc
     except IntegrityError as exc:
         raise ValidationError(
@@ -99,7 +103,9 @@ def approve_variation(
             }
         )
     if approved_amount is None or approved_amount < 0:
-        raise ValidationError({"approved_amount": "A non-negative approved amount is required."})
+        raise ValidationError(
+            {"approved_amount": "A non-negative approved amount is required."}
+        )
 
     variation.approved_amount = approved_amount
     variation.approved_by = approver

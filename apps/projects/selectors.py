@@ -109,13 +109,18 @@ def _variation_totals(project: Project) -> dict[str, Decimal]:
     — money the project might cost, never money it already does.
     """
     variations = Variation.objects.filter(project=project)
-    approved_total = variations.filter(status__in=VARIATION_APPROVED_STATUSES).aggregate(
-        total=Coalesce(Sum("approved_amount"), ZERO, output_field=_MONEY)
-    )["total"]
+    approved_total = variations.filter(
+        status__in=VARIATION_APPROVED_STATUSES
+    ).aggregate(total=Coalesce(Sum("approved_amount"), ZERO, output_field=_MONEY))[
+        "total"
+    ]
     pending_total = variations.filter(status__in=VARIATION_PENDING_STATUSES).aggregate(
         total=Coalesce(Sum("estimated_amount"), ZERO, output_field=_MONEY)
     )["total"]
-    return {"approved_variations_total": approved_total, "pending_variations_exposure": pending_total}
+    return {
+        "approved_variations_total": approved_total,
+        "pending_variations_exposure": pending_total,
+    }
 
 
 def project_dashboard(project: Project) -> dict:
@@ -147,7 +152,9 @@ def project_dashboard(project: Project) -> dict:
     cost_variance = approved_budget - forecast_final_cost
 
     variation_totals = _variation_totals(project)
-    revised_approved_budget = approved_budget + variation_totals["approved_variations_total"]
+    revised_approved_budget = (
+        approved_budget + variation_totals["approved_variations_total"]
+    )
 
     latest = latest_progress_update(project)
     planned_progress = latest.planned_progress_percent if latest else ZERO

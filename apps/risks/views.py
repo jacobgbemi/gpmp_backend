@@ -12,7 +12,9 @@ from apps.risks.serializers import IssueSerializer, RiskSerializer
 
 
 @extend_schema(tags=["risks"])
-class RiskViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class RiskViewSet(
+    mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet
+):
     """
     GET   /api/risks/{id}/
     PATCH /api/risks/{id}/
@@ -37,7 +39,9 @@ class RiskViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
 
 
 @extend_schema(tags=["issues"])
-class IssueViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class IssueViewSet(
+    mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet
+):
     """
     GET   /api/issues/{id}/
     PATCH /api/issues/{id}/
@@ -46,7 +50,10 @@ class IssueViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.
     """
 
     serializer_class = IssueSerializer
-    permission_classes: ClassVar[list[type]] = [IsAuthenticated, IsIssueWriterOrReadOnly]
+    permission_classes: ClassVar[list[type]] = [
+        IsAuthenticated,
+        IsIssueWriterOrReadOnly,
+    ]
     http_method_names: ClassVar[list[str]] = ["get", "patch", "head", "options"]
     queryset = Issue.objects.none()  # overridden by get_queryset
 

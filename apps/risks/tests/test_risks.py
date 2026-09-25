@@ -40,7 +40,9 @@ class TestRiskCreationAndScoring:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data["status"] == "OPEN"
 
-    def test_risk_score_is_probability_times_impact(self, user_a, project_a, auth_client):
+    def test_risk_score_is_probability_times_impact(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = _create_risk(
@@ -158,7 +160,9 @@ class TestRiskStatusTransitions:
         client, _ = auth_client(user_a)
         risk_id = _create_risk(client, project_a, str(user_a.id)).data["id"]
 
-        response = client.patch(f"/api/risks/{risk_id}/", {"status": "CLOSED"}, format="json")
+        response = client.patch(
+            f"/api/risks/{risk_id}/", {"status": "CLOSED"}, format="json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
 
@@ -173,7 +177,9 @@ class TestRiskStatusTransitions:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_mitigating_can_move_to_monitoring_and_back(self, user_a, project_a, auth_client):
+    def test_mitigating_can_move_to_monitoring_and_back(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         risk_id = _create_risk(client, project_a, str(user_a.id)).data["id"]
         client.patch(f"/api/risks/{risk_id}/", {"status": "MITIGATING"}, format="json")
@@ -196,7 +202,9 @@ class TestRiskStatusTransitions:
 
 @pytest.mark.django_db
 class TestRiskScoreRecomputation:
-    def test_updating_probability_recomputes_score(self, user_a, project_a, auth_client):
+    def test_updating_probability_recomputes_score(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         risk_id = _create_risk(
             client, project_a, str(user_a.id), probability=2, impact=2
@@ -230,7 +238,9 @@ class TestRiskFiltering:
     def test_filter_by_status(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
         _create_risk(client, project_a, str(user_a.id), title="A")
-        closed_id = _create_risk(client, project_a, str(user_a.id), title="B").data["id"]
+        closed_id = _create_risk(client, project_a, str(user_a.id), title="B").data[
+            "id"
+        ]
         client.patch(f"/api/risks/{closed_id}/", {"status": "CLOSED"}, format="json")
 
         response = client.get(f"/api/projects/{project_a.id}/risks/?status=CLOSED")
@@ -262,7 +272,9 @@ class TestRiskFiltering:
 
 @pytest.mark.django_db
 class TestRiskIsolation:
-    def test_cannot_retrieve_foreign_org_risk(self, user_a, project_b, user_b, auth_client):
+    def test_cannot_retrieve_foreign_org_risk(
+        self, user_a, project_b, user_b, auth_client
+    ):
         client_b, _ = auth_client(user_b)
         risk_id = _create_risk(client_b, project_b, str(user_b.id)).data["id"]
 
@@ -271,7 +283,9 @@ class TestRiskIsolation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_update_foreign_org_risk(self, user_a, project_b, user_b, auth_client):
+    def test_cannot_update_foreign_org_risk(
+        self, user_a, project_b, user_b, auth_client
+    ):
         client_b, _ = auth_client(user_b)
         risk_id = _create_risk(client_b, project_b, str(user_b.id)).data["id"]
 
@@ -282,7 +296,9 @@ class TestRiskIsolation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_list_foreign_org_project_risks(self, user_a, project_b, auth_client):
+    def test_cannot_list_foreign_org_project_risks(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get(f"/api/projects/{project_b.id}/risks/")

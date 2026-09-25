@@ -23,7 +23,9 @@ def _create_variation(client, project, **overrides):
         "requested_amount": "15000000.00",
         "estimated_amount": "12000000.00",
     } | overrides
-    return client.post(f"/api/projects/{project.id}/variations/", payload, format="json")
+    return client.post(
+        f"/api/projects/{project.id}/variations/", payload, format="json"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +74,9 @@ class TestVariationCreation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_viewer_cannot_create_variation(self, org_a, project_a, make_user, auth_client):
+    def test_viewer_cannot_create_variation(
+        self, org_a, project_a, make_user, auth_client
+    ):
         viewer = make_user(email="viewer@example.com")
         org_services.add_member(organization=org_a, user=viewer, role=Role.VIEWER)
         client, _ = auth_client(viewer)
@@ -81,14 +85,18 @@ class TestVariationCreation:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_foreign_org_user_cannot_create_variation(self, user_a, project_b, auth_client):
+    def test_foreign_org_user_cannot_create_variation(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = _create_variation(client, project_b)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_status_cannot_be_set_directly_on_create(self, user_a, project_a, auth_client):
+    def test_status_cannot_be_set_directly_on_create(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = _create_variation(client, project_a, status="APPROVED")
@@ -109,7 +117,9 @@ class TestVariationStatusTransitions:
         variation_id = _create_variation(client, project_a).data["id"]
 
         response = client.patch(
-            f"/api/variations/{variation_id}/", {"status": "UNDER_REVIEW"}, format="json"
+            f"/api/variations/{variation_id}/",
+            {"status": "UNDER_REVIEW"},
+            format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -136,7 +146,9 @@ class TestVariationStatusTransitions:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_status_cannot_be_set_to_approved_via_patch(self, user_a, project_a, auth_client):
+    def test_status_cannot_be_set_to_approved_via_patch(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         variation_id = _create_variation(client, project_a).data["id"]
 
@@ -154,7 +166,9 @@ class TestVariationStatusTransitions:
     ):
         client, _ = auth_client(user_a)
         variation_id = _create_variation(client, project_a).data["id"]
-        client.patch(f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json")
+        client.patch(
+            f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json"
+        )
 
         response = client.patch(
             f"/api/variations/{variation_id}/", {"status": "CLOSED"}, format="json"
@@ -165,11 +179,17 @@ class TestVariationStatusTransitions:
     def test_closed_is_terminal(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
         variation_id = _create_variation(client, project_a).data["id"]
-        client.patch(f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json")
-        client.patch(f"/api/variations/{variation_id}/", {"status": "CLOSED"}, format="json")
+        client.patch(
+            f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json"
+        )
+        client.patch(
+            f"/api/variations/{variation_id}/", {"status": "CLOSED"}, format="json"
+        )
 
         response = client.patch(
-            f"/api/variations/{variation_id}/", {"status": "UNDER_REVIEW"}, format="json"
+            f"/api/variations/{variation_id}/",
+            {"status": "UNDER_REVIEW"},
+            format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -201,7 +221,11 @@ class TestVariationApproval:
     def test_approve_from_under_review(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
         variation_id = _create_variation(client, project_a).data["id"]
-        client.patch(f"/api/variations/{variation_id}/", {"status": "UNDER_REVIEW"}, format="json")
+        client.patch(
+            f"/api/variations/{variation_id}/",
+            {"status": "UNDER_REVIEW"},
+            format="json",
+        )
 
         response = client.post(
             f"/api/variations/{variation_id}/approve/",
@@ -214,7 +238,9 @@ class TestVariationApproval:
     def test_cannot_approve_a_rejected_variation(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
         variation_id = _create_variation(client, project_a).data["id"]
-        client.patch(f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json")
+        client.patch(
+            f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json"
+        )
 
         response = client.post(
             f"/api/variations/{variation_id}/approve/",
@@ -224,7 +250,9 @@ class TestVariationApproval:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_cannot_approve_an_already_approved_variation(self, user_a, project_a, auth_client):
+    def test_cannot_approve_an_already_approved_variation(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         variation_id = _create_variation(client, project_a).data["id"]
         client.post(
@@ -273,7 +301,9 @@ class TestVariationApproval:
         self, user_a, org_a, project_a, make_user, auth_client
     ):
         controls = make_user(email="controls@example.com")
-        org_services.add_member(organization=org_a, user=controls, role=Role.PROJECT_CONTROLS)
+        org_services.add_member(
+            organization=org_a, user=controls, role=Role.PROJECT_CONTROLS
+        )
         admin_client, _ = auth_client(user_a)
         variation_id = _create_variation(admin_client, project_a).data["id"]
 
@@ -331,7 +361,9 @@ class TestVariationFinancialImpact:
             client, project_a, estimated_amount="12000000.00"
         ).data["id"]
 
-        client.patch(f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json")
+        client.patch(
+            f"/api/variations/{variation_id}/", {"status": "REJECTED"}, format="json"
+        )
 
         response = client.get(f"/api/projects/{project_a.id}/dashboard/")
 
@@ -356,7 +388,9 @@ class TestVariationFinancialImpact:
         rejected_id = _create_variation(
             client, project_a, variation_number="VO-C", estimated_amount="9999999.00"
         ).data["id"]
-        client.patch(f"/api/variations/{rejected_id}/", {"status": "REJECTED"}, format="json")
+        client.patch(
+            f"/api/variations/{rejected_id}/", {"status": "REJECTED"}, format="json"
+        )
 
         response = client.get(f"/api/projects/{project_a.id}/dashboard/")
 
@@ -398,7 +432,9 @@ class TestVariationIsolation:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_list_foreign_org_project_variations(self, user_a, project_b, auth_client):
+    def test_cannot_list_foreign_org_project_variations(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get(f"/api/projects/{project_b.id}/variations/")
@@ -416,18 +452,28 @@ class TestVariationFiltering:
     def test_filter_by_status(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
         _create_variation(client, project_a, variation_number="VO-A")
-        rejected_id = _create_variation(client, project_a, variation_number="VO-B").data["id"]
-        client.patch(f"/api/variations/{rejected_id}/", {"status": "REJECTED"}, format="json")
+        rejected_id = _create_variation(
+            client, project_a, variation_number="VO-B"
+        ).data["id"]
+        client.patch(
+            f"/api/variations/{rejected_id}/", {"status": "REJECTED"}, format="json"
+        )
 
-        response = client.get(f"/api/projects/{project_a.id}/variations/?status=REJECTED")
+        response = client.get(
+            f"/api/projects/{project_a.id}/variations/?status=REJECTED"
+        )
 
         assert response.data["count"] == 1
         assert response.data["results"][0]["id"] == rejected_id
 
     def test_filter_by_category(self, user_a, project_a, auth_client):
         client, _ = auth_client(user_a)
-        _create_variation(client, project_a, variation_number="VO-A", category="DESIGN_CHANGE")
-        _create_variation(client, project_a, variation_number="VO-B", category="SITE_CONDITION")
+        _create_variation(
+            client, project_a, variation_number="VO-A", category="DESIGN_CHANGE"
+        )
+        _create_variation(
+            client, project_a, variation_number="VO-B", category="SITE_CONDITION"
+        )
 
         response = client.get(
             f"/api/projects/{project_a.id}/variations/?category=DESIGN_CHANGE"

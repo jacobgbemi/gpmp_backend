@@ -46,7 +46,9 @@ class RiskStatus(models.TextChoices):
 
 
 RISK_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
-    RiskStatus.OPEN: frozenset({RiskStatus.MITIGATING, RiskStatus.MONITORING, RiskStatus.CLOSED}),
+    RiskStatus.OPEN: frozenset(
+        {RiskStatus.MITIGATING, RiskStatus.MONITORING, RiskStatus.CLOSED}
+    ),
     RiskStatus.MITIGATING: frozenset({RiskStatus.MONITORING, RiskStatus.CLOSED}),
     RiskStatus.MONITORING: frozenset({RiskStatus.MITIGATING, RiskStatus.CLOSED}),
 }
@@ -114,7 +116,9 @@ class IssueStatus(models.TextChoices):
 
 
 ISSUE_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
-    IssueStatus.OPEN: frozenset({IssueStatus.IN_PROGRESS, IssueStatus.RESOLVED, IssueStatus.CLOSED}),
+    IssueStatus.OPEN: frozenset(
+        {IssueStatus.IN_PROGRESS, IssueStatus.RESOLVED, IssueStatus.CLOSED}
+    ),
     IssueStatus.IN_PROGRESS: frozenset({IssueStatus.RESOLVED, IssueStatus.CLOSED}),
     IssueStatus.RESOLVED: frozenset({IssueStatus.IN_PROGRESS, IssueStatus.CLOSED}),
 }

@@ -53,7 +53,9 @@ def create_risk(*, project, owner, probability: int, impact: int, **fields) -> R
         risk.save()
     except DjangoValidationError as exc:
         raise ValidationError(
-            exc.message_dict if hasattr(exc, "message_dict") else {"detail": exc.messages}
+            exc.message_dict
+            if hasattr(exc, "message_dict")
+            else {"detail": exc.messages}
         ) from exc
     return risk
 
@@ -86,7 +88,9 @@ def update_risk(*, risk: Risk, data: dict) -> Risk:
         risk.save()
     except DjangoValidationError as exc:
         raise ValidationError(
-            exc.message_dict if hasattr(exc, "message_dict") else {"detail": exc.messages}
+            exc.message_dict
+            if hasattr(exc, "message_dict")
+            else {"detail": exc.messages}
         ) from exc
     return risk
 
@@ -105,7 +109,9 @@ def create_issue(*, project, owner, **fields) -> Issue:
         issue.save()
     except DjangoValidationError as exc:
         raise ValidationError(
-            exc.message_dict if hasattr(exc, "message_dict") else {"detail": exc.messages}
+            exc.message_dict
+            if hasattr(exc, "message_dict")
+            else {"detail": exc.messages}
         ) from exc
     return issue
 
@@ -117,9 +123,13 @@ def update_issue(*, issue: Issue, data: dict) -> Issue:
         allowed = ISSUE_STATUS_TRANSITIONS.get(issue.status, frozenset())
         if new_status not in allowed:
             raise ValidationError(
-                {"status": f"Cannot transition issue from '{issue.status}' to '{new_status}'."}
+                {
+                    "status": f"Cannot transition issue from '{issue.status}' to '{new_status}'."
+                }
             )
-        if new_status == IssueStatus.RESOLVED and not (data.get("resolution") or issue.resolution):
+        if new_status == IssueStatus.RESOLVED and not (
+            data.get("resolution") or issue.resolution
+        ):
             raise ValidationError(
                 {"resolution": "A resolution is required to mark an issue resolved."}
             )
@@ -135,6 +145,8 @@ def update_issue(*, issue: Issue, data: dict) -> Issue:
         issue.save()
     except DjangoValidationError as exc:
         raise ValidationError(
-            exc.message_dict if hasattr(exc, "message_dict") else {"detail": exc.messages}
+            exc.message_dict
+            if hasattr(exc, "message_dict")
+            else {"detail": exc.messages}
         ) from exc
     return issue

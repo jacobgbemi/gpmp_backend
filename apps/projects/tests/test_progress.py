@@ -46,7 +46,9 @@ class TestProgressCreation:
         update = ProgressUpdate.objects.get(project=project_a)
         assert update.submitted_by == user_a
 
-    def test_viewer_cannot_submit_progress(self, org_a, project_a, make_user, auth_client):
+    def test_viewer_cannot_submit_progress(
+        self, org_a, project_a, make_user, auth_client
+    ):
         viewer = make_user(email="viewer@example.com")
         org_services.add_member(organization=org_a, user=viewer, role=Role.VIEWER)
         client, _ = auth_client(viewer)
@@ -66,7 +68,9 @@ class TestProgressCreation:
 
 @pytest.mark.django_db
 class TestProgressValidation:
-    @pytest.mark.parametrize("field", ["planned_progress_percent", "actual_progress_percent"])
+    @pytest.mark.parametrize(
+        "field", ["planned_progress_percent", "actual_progress_percent"]
+    )
     def test_percent_over_100_rejected(self, user_a, project_a, auth_client, field):
         client, _ = auth_client(user_a)
         payload = {
@@ -82,7 +86,9 @@ class TestProgressValidation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @pytest.mark.parametrize("field", ["planned_progress_percent", "actual_progress_percent"])
+    @pytest.mark.parametrize(
+        "field", ["planned_progress_percent", "actual_progress_percent"]
+    )
     def test_negative_percent_rejected(self, user_a, project_a, auth_client, field):
         client, _ = auth_client(user_a)
         payload = {
@@ -143,7 +149,9 @@ class TestProgressValidation:
             "actual_progress_percent": "35.00",
         }
 
-        first = client.post(f"/api/projects/{project_a.id}/progress/", payload, format="json")
+        first = client.post(
+            f"/api/projects/{project_a.id}/progress/", payload, format="json"
+        )
         second = client.post(
             f"/api/projects/{other_project.id}/progress/", payload, format="json"
         )
@@ -154,7 +162,9 @@ class TestProgressValidation:
 
 @pytest.mark.django_db
 class TestProgressHistory:
-    def test_history_preserved_across_multiple_updates(self, user_a, project_a, auth_client):
+    def test_history_preserved_across_multiple_updates(
+        self, user_a, project_a, auth_client
+    ):
         client, _ = auth_client(user_a)
         client.post(
             f"/api/projects/{project_a.id}/progress/",
@@ -182,7 +192,9 @@ class TestProgressHistory:
         dates = [row["reporting_date"] for row in response.data["results"]]
         assert dates == ["2026-06-01", "2026-05-01"]
 
-    def test_progress_update_has_no_patch_endpoint(self, user_a, project_a, auth_client):
+    def test_progress_update_has_no_patch_endpoint(
+        self, user_a, project_a, auth_client
+    ):
         """Progress history is immutable — there is no update endpoint."""
         client, _ = auth_client(user_a)
         create = client.post(
@@ -204,7 +216,9 @@ class TestProgressHistory:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_foreign_org_user_cannot_view_progress(self, user_a, project_b, auth_client):
+    def test_foreign_org_user_cannot_view_progress(
+        self, user_a, project_b, auth_client
+    ):
         client, _ = auth_client(user_a)
 
         response = client.get(f"/api/projects/{project_b.id}/progress/")

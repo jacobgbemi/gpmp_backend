@@ -174,7 +174,9 @@ def _ensure_membership(user: User, organization: Organization) -> None:
         defaults={"role": Role.ORGANIZATION_ADMIN},
     )
     if created:
-        print(f"Added {user.email} to '{organization.name}' as {Role.ORGANIZATION_ADMIN}")
+        print(
+            f"Added {user.email} to '{organization.name}' as {Role.ORGANIZATION_ADMIN}"
+        )
 
 
 def _create_project(organization: Organization) -> Project:

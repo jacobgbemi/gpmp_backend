@@ -13,7 +13,9 @@ from apps.variations.serializers import VariationApproveSerializer, VariationSer
 
 
 @extend_schema(tags=["variations"])
-class VariationViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class VariationViewSet(
+    mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet
+):
     """
     GET   /api/variations/{id}/
     PATCH /api/variations/{id}/                 status changes other than approval
@@ -43,7 +45,9 @@ class VariationViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, views
         )
         return Response(self.get_serializer(variation).data)
 
-    @extend_schema(request=VariationApproveSerializer, responses={200: VariationSerializer})
+    @extend_schema(
+        request=VariationApproveSerializer, responses={200: VariationSerializer}
+    )
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request, pk=None):
         variation = self.get_object()

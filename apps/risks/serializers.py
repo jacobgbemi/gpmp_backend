@@ -9,7 +9,9 @@ from apps.risks.models import Issue, Risk
 def _owner_queryset(project):
     if project is None:
         return User.objects.none()
-    return User.objects.filter(memberships__organization=project.organization).distinct()
+    return User.objects.filter(
+        memberships__organization=project.organization
+    ).distinct()
 
 
 class RiskSerializer(serializers.ModelSerializer):
