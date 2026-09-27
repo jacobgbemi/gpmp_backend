@@ -5,13 +5,15 @@ Creates one realistic organization/project so the API and frontend have
 something to show without a person having to click it all together by
 hand. Every record goes through the same services/selectors the API
 itself uses (apps.accounts, apps.organizations.services,
-apps.projects.services, apps.projects.selectors) — nothing here writes
-directly to a model that has a service, so the seeded data obeys the
-same validation and status-transition rules real requests do.
+apps.projects.services, apps.projects.selectors, apps.variations.services,
+apps.risks.services) — nothing here writes directly to a model that has a
+service, so the seeded data obeys the same validation and status-transition
+rules real requests do.
 
 Idempotent: safe to run more than once. If the demo organization already
 has the demo project, the script prints a message and exits without
-creating duplicates or re-running the payment workflow.
+creating duplicates or re-running the payment/variation/risk/issue
+workflows.
 
 Creates:
     - User:          demo@glintpm.dev (password: DemoPass123!)
@@ -24,6 +26,17 @@ Creates:
     - 5 PaymentApplications, one per point in the review lifecycle:
       SUBMITTED, UNDER_REVIEW, RECOMMENDED, REJECTED, and one carried
       all the way through to PARTIALLY_PAID.
+    - 4 Variations, one per point in the review lifecycle: PROPOSED,
+      UNDER_REVIEW, APPROVED (via the dedicated /approve/ flow), and
+      REJECTED — so the dashboard's approved_variations_total and
+      pending_variations_exposure both have real, distinguishable data.
+    - 5 Risks spanning categories, responses, and every RiskStatus
+      (OPEN, MITIGATING, MONITORING, CLOSED), scored via probability x
+      impact so the risk register shows a realistic spread from LOW to
+      HIGH.
+    - 4 Issues spanning every severity and every IssueStatus (OPEN,
+      IN_PROGRESS, RESOLVED, CLOSED), with resolution text recorded on
+      the ones that reached RESOLVED/CLOSED.
 
 Run with:
     python manage.py shell -c "import scripts.seed_demo_data as s; s.run()"
@@ -37,9 +50,11 @@ from apps.organizations import services as org_services
 from apps.organizations.models import Organization, OrganizationMembership, Role
 from apps.projects import services as project_services
 from apps.projects.models import Project, ProjectType
+from apps.risks import services as risk_services
+from apps.variations import services as variation_services
 
 DEMO_USER_EMAIL = "demo@glintpm.dev"
-DEMO_USER_PASSWORD = "DemoPass123!"  # noqa: S105 - throwaway local demo credential
+DEMO_USER_PASSWORD = "DemoPass123!"
 
 ORGANIZATION_NAME = "GlintPM Private Demo"
 PROJECT_CODE = "LRL-001"
@@ -139,6 +154,155 @@ PROGRESS_UPDATES = [
     ),
 ]
 
+# (variation_number, title, description, reason, category, requested,
+#  estimated, target_lifecycle_status)
+# target_lifecycle_status drives _seed_variations below: how far through
+# PROPOSED -> UNDER_REVIEW -> APPROVED / REJECTED each sample is taken.
+VARIATIONS = [
+    (
+        "VO-001",
+        "Additional soakaway pit",
+        "Existing soakaway undersized for revised drainage design.",
+        "Site survey found groundwater table higher than geotechnical report indicated.",
+        "SITE_CONDITION",
+        "8500000.00",
+        "7200000.00",
+        "PROPOSED",
+    ),
+    (
+        "VO-002",
+        "Upgrade sanitaryware specification",
+        "Client requested higher-end sanitaryware brand across all bathrooms.",
+        "Client site visit; revised finishes brief issued.",
+        "CLIENT_REQUEST",
+        "6000000.00",
+        "5500000.00",
+        "UNDER_REVIEW",
+    ),
+    (
+        "VO-003",
+        "Structural steel redesign for pool house",
+        "Pool house roof structure redesigned to clear-span steel trusses.",
+        "Architect's revised design to open up pool house sightlines.",
+        "DESIGN_CHANGE",
+        "22000000.00",
+        "20000000.00",
+        "APPROVED",
+    ),
+    (
+        "VO-004",
+        "Imported marble upgrade",
+        "Client requested imported marble in place of specified local granite.",
+        "Client preference change after showroom visit.",
+        "CLIENT_REQUEST",
+        "30000000.00",
+        "28000000.00",
+        "REJECTED",
+    ),
+]
+
+# (title, description, category, probability, impact, response, mitigation,
+#  contingency, target_date, target_lifecycle_status)
+RISKS = [
+    (
+        "Rainy season delays substructure works",
+        "Peak rainy season overlaps with excavation and foundation pours.",
+        "SCHEDULE",
+        4,
+        4,
+        "MITIGATE",
+        "Sequence pours around forecast dry windows; hire additional dewatering pumps.",
+        "Add 3-week schedule buffer before superstructure milestone.",
+        date(2026, 10, 31),
+        "MITIGATING",
+    ),
+    (
+        "Cement price volatility",
+        "Local cement prices have risen 12% in the last quarter.",
+        "COST",
+        3,
+        4,
+        "ACCEPT",
+        "",
+        "Contingency line held in professional fees budget category.",
+        None,
+        "OPEN",
+    ),
+    (
+        "Sole-sourced marble supplier delay",
+        "Only one supplier can meet the imported marble specification.",
+        "PROCUREMENT",
+        2,
+        5,
+        "TRANSFER",
+        "Back-to-back supply contract with liquidated damages clause.",
+        "Identify a secondary supplier as fallback if lead time slips.",
+        date(2026, 11, 30),
+        "MONITORING",
+    ),
+    (
+        "Site security breach risk",
+        "Perimeter fencing incomplete on the eastern boundary.",
+        "SAFETY",
+        2,
+        3,
+        "MITIGATE",
+        "Temporary hoarding and night security until permanent fence complete.",
+        "",
+        date(2026, 7, 31),
+        "OPEN",
+    ),
+    (
+        "Regulatory approval delay for pool house",
+        "Pool house is an addition to the originally approved building plan.",
+        "REGULATORY",
+        1,
+        3,
+        "ACCEPT",
+        "Submitted amended plan approval application early.",
+        "",
+        date(2026, 8, 15),
+        "CLOSED",
+    ),
+]
+
+# (title, description, severity, target_date, target_lifecycle_status,
+#  resolution)
+ISSUES = [
+    (
+        "Cracked slab found on level 2",
+        "Hairline cracks visible on level 2 slab near the northeast column.",
+        "HIGH",
+        date(2026, 10, 1),
+        "IN_PROGRESS",
+        "",
+    ),
+    (
+        "Water ingress in basement parking",
+        "Standing water observed in basement parking after heavy rain.",
+        "CRITICAL",
+        date(2026, 9, 30),
+        "OPEN",
+        "",
+    ),
+    (
+        "Incorrect tile batch delivered",
+        "Delivered floor tile batch does not match the approved sample.",
+        "MEDIUM",
+        date(2026, 8, 1),
+        "RESOLVED",
+        "Supplier collected incorrect batch and redelivered the correct one on 2026-08-05.",
+    ),
+    (
+        "Generator noise complaint from neighbor",
+        "Adjacent property raised a noise complaint about the site generator.",
+        "LOW",
+        date(2026, 7, 1),
+        "CLOSED",
+        "Generator relocated and acoustic enclosure installed; complainant confirmed resolved.",
+    ),
+]
+
 
 def _get_or_create_demo_user() -> User:
     user, created = User.objects.get_or_create(
@@ -174,9 +338,7 @@ def _ensure_membership(user: User, organization: Organization) -> None:
         defaults={"role": Role.ORGANIZATION_ADMIN},
     )
     if created:
-        print(
-            f"Added {user.email} to '{organization.name}' as {Role.ORGANIZATION_ADMIN}"
-        )
+        print(f"Added {user.email} to '{organization.name}' as {Role.ORGANIZATION_ADMIN}")
 
 
 def _create_project(organization: Organization) -> Project:
@@ -330,6 +492,122 @@ def _seed_payments(project: Project, submitter: User, reviewer: User) -> None:
     print("Seeded 5 payment applications across the full review lifecycle")
 
 
+def _seed_variations(project: Project, created_by: User, approver: User) -> None:
+    """
+    One variation per point in its review lifecycle, so the dashboard's
+    approved_variations_total (VO-003 only) and pending_variations_exposure
+    (VO-001 + VO-002) are both non-zero and clearly distinguishable, and
+    REJECTED (VO-004) demonstrably contributes to neither.
+    """
+    for (
+        variation_number,
+        title,
+        description,
+        reason,
+        category,
+        requested_amount,
+        estimated_amount,
+        target_status,
+    ) in VARIATIONS:
+        variation = variation_services.create_variation(
+            project=project,
+            created_by=created_by,
+            variation_number=variation_number,
+            title=title,
+            description=description,
+            reason=reason,
+            category=category,
+            requested_amount=Decimal(requested_amount),
+            estimated_amount=Decimal(estimated_amount),
+        )
+
+        if target_status == "PROPOSED":
+            continue
+
+        if target_status == "UNDER_REVIEW":
+            variation_services.update_variation(
+                variation=variation, data={"status": "UNDER_REVIEW"}
+            )
+        elif target_status == "APPROVED":
+            variation_services.update_variation(
+                variation=variation, data={"status": "UNDER_REVIEW"}
+            )
+            variation_services.approve_variation(
+                variation=variation,
+                approver=approver,
+                approved_amount=Decimal(estimated_amount) - Decimal("500000.00"),
+                notes="Approved after QS review; scope confirmed against site instruction.",
+            )
+        elif target_status == "REJECTED":
+            variation_services.update_variation(
+                variation=variation, data={"status": "REJECTED"}
+            )
+
+    print(f"Seeded {len(VARIATIONS)} variations across PROPOSED/UNDER_REVIEW/APPROVED/REJECTED")
+
+
+def _seed_risks(project: Project, owner: User) -> None:
+    for (
+        title,
+        description,
+        category,
+        probability,
+        impact,
+        response,
+        mitigation,
+        contingency,
+        target_date,
+        target_status,
+    ) in RISKS:
+        risk = risk_services.create_risk(
+            project=project,
+            owner=owner,
+            title=title,
+            description=description,
+            category=category,
+            probability=probability,
+            impact=impact,
+            response=response,
+            mitigation=mitigation,
+            contingency=contingency,
+            target_date=target_date,
+        )
+
+        if target_status != "OPEN":
+            risk_services.update_risk(risk=risk, data={"status": target_status})
+
+    print(f"Seeded {len(RISKS)} risks spanning OPEN/MITIGATING/MONITORING/CLOSED")
+
+
+def _seed_issues(project: Project, owner: User) -> None:
+    for (
+        title,
+        description,
+        severity,
+        target_date,
+        target_status,
+        resolution,
+    ) in ISSUES:
+        issue = risk_services.create_issue(
+            project=project,
+            owner=owner,
+            title=title,
+            description=description,
+            severity=severity,
+            target_date=target_date,
+        )
+
+        if target_status == "OPEN":
+            continue
+
+        data = {"status": target_status}
+        if resolution:
+            data["resolution"] = resolution
+        risk_services.update_issue(issue=issue, data=data)
+
+    print(f"Seeded {len(ISSUES)} issues spanning OPEN/IN_PROGRESS/RESOLVED/CLOSED")
+
+
 def run() -> None:
     user = _get_or_create_demo_user()
     organization = _get_or_create_demo_organization(user)
@@ -348,6 +626,9 @@ def run() -> None:
     _add_budget_items(project)
     _add_progress_updates(project, submitted_by=user)
     _seed_payments(project, submitter=user, reviewer=user)
+    _seed_variations(project, created_by=user, approver=user)
+    _seed_risks(project, owner=user)
+    _seed_issues(project, owner=user)
 
     print()
     print("Demo data seeded.")
