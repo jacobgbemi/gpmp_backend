@@ -81,8 +81,36 @@ class ProjectViewSet(
         "options",
     ]
 
+    # The global DEFAULT_FILTER_BACKENDS (django-filter, SearchFilter,
+    # OrderingFilter) only act on a view that declares the fields below;
+    # without them `?search=` and `?status=` are silently ignored.
+    filterset_fields: ClassVar[list[str]] = ["status", "project_type"]
+    search_fields: ClassVar[list[str]] = [
+        "name",
+        "project_code",
+        "location",
+        "client_name",
+    ]
+    ordering_fields: ClassVar[list[str]] = [
+        "created_at",
+        "name",
+        "contract_value",
+        "planned_end_date",
+    ]
+    ordering: ClassVar[list[str]] = ["-created_at"]
+
     def get_queryset(self):
         return selectors.projects_for_user(self.request.user)
+
+    def filter_queryset(self, queryset):
+        # Only the list endpoint is filterable. The detail and nested
+        # actions (budget/progress/payments/dashboard) call get_object(),
+        # which runs filter_queryset — so without this guard something like
+        # /projects/{id}/payments/?status=PAID would filter the *project*
+        # by status and 404.
+        if self.action != "list":
+            return queryset
+        return super().filter_queryset(queryset)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -343,8 +371,10 @@ class ProjectViewSet(
 @extend_schema(tags=["payments"])
 class PaymentViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """
-    GET  /api/payments/{id}/
-    POST /api/payments/{id}/review/   move a payment through its lifecycle
+    GET   /api/payments/{id}/
+    PATCH /api/payments/{id}/          correct amount_requested/submission_date
+                                        (write roles; only before review starts)
+    POST  /api/payments/{id}/review/   move a payment through its lifecycle
 
     Listing/creating payments happens via /api/projects/{id}/payments/ —
     this resource is for direct lookup and review of a single payment.
@@ -352,6 +382,13 @@ class PaymentViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
 
     serializer_class = PaymentApplicationSerializer
     queryset = PaymentApplication.objects.none()  # overridden by get_queryset
+    http_method_names: ClassVar[list[str]] = [
+        "get",
+        "post",
+        "patch",
+        "head",
+        "options",
+    ]
 
     def get_queryset(self):
         return selectors.payment_queryset_for_user(self.request.user)
@@ -359,21 +396,15 @@ class PaymentViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     def get_permissions(self):
         if self.action == "review":
             return [IsAuthenticated(), CanReviewPayment()]
+        if self.action == "partial_update":
+            return [IsAuthenticated(), IsProjectWriterOrReadOnly()]
         return [IsAuthenticated(), IsProjectOrgMember()]
 
-    @extend_schema(
-        request=PaymentReviewSerializer, responses={200: PaymentApplicationSerializer}
-    )
-    @action(detail=True, methods=["post"], url_path="review")
-    def review(self, request, pk=None):
-        payment = self.get_object()
-        serializer = PaymentReviewSerializer(data=request.data)
+    def partial_update(self, request, *args, **kwargs):
+        payment = self.get_object()  # 404 for non-members, 403 for read-only roles
+        serializer = self.get_serializer(payment, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        payment = services.PaymentService.review(
-            payment=payment,
-            reviewer=request.user,
-            decision=serializer.validated_data["decision"],
-            amount=serializer.validated_data.get("amount"),
-            notes=serializer.validated_data.get("notes", ""),
+        payment = services.update_payment(
+            payment=payment, data=dict(serializer.validated_data)
         )
-        return Response(PaymentApplicationSerializer(payment).data)
+        return Response(self.get_serializer(payment).data)

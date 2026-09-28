@@ -174,6 +174,45 @@ def create_payment(
         status=PaymentStatus.SUBMITTED,
     )
 
+# Payment statuses in which the submitting side may still correct the
+# application. Once review starts, `amount_requested` is the baseline the
+# recommended/approved amounts are capped against, so it is frozen.
+_PAYMENT_EDITABLE_STATUSES = frozenset({PaymentStatus.DRAFT, PaymentStatus.SUBMITTED})
+
+
+@transaction.atomic
+def update_payment(*, payment: PaymentApplication, data: dict) -> PaymentApplication:
+    """
+    Correct the submitter-controlled fields (amount_requested,
+    submission_date) of a payment that has not entered review yet.
+
+    Status and the recommended/approved/paid amounts are never touched
+    here — they only move through `PaymentService.review()`.
+    """
+    if payment.status not in _PAYMENT_EDITABLE_STATUSES:
+        raise ValidationError(
+            {
+                "detail": (
+                    f"A payment application that is '{payment.status}' can no "
+                    "longer be edited. Only DRAFT or SUBMITTED applications "
+                    "can be changed."
+                )
+            }
+        )
+
+    for field, value in data.items():
+        setattr(payment, field, value)
+
+    try:
+        payment.full_clean()
+        payment.save()
+    except DjangoValidationError as exc:
+        raise ValidationError(
+            exc.message_dict
+            if hasattr(exc, "message_dict")
+            else {"detail": exc.messages}
+        ) from exc
+    return payment
 
 class PaymentReviewDecision:
     START_REVIEW = "START_REVIEW"
