@@ -408,3 +408,29 @@ class PaymentViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
             payment=payment, data=dict(serializer.validated_data)
         )
         return Response(self.get_serializer(payment).data)
+
+    @extend_schema(
+        request=PaymentReviewSerializer,
+        responses=PaymentApplicationSerializer,
+    )
+    @action(detail=True, methods=["post"], url_path="review")
+    def review(self, request, pk=None):
+        """
+        POST /api/payments/{id}/review/ — body: {"decision": "...",
+        "amount"?: "...", "notes"?: "..."}
+
+        decision is one of START_REVIEW, RECOMMEND, APPROVE, REJECT,
+        RECORD_PAYMENT (apps/projects/services.py
+        PaymentReviewDecision). Permission is CanReviewPayment, not
+        IsProjectWriterOrReadOnly — a role can create/edit a payment
+        without being allowed to review it (separation of duties).
+        """
+        payment = self.get_object()
+        serializer = PaymentReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = services.PaymentService.review(
+            payment=payment,
+            reviewer=request.user,
+            **serializer.validated_data,
+        )
+        return Response(PaymentApplicationSerializer(payment).data)
