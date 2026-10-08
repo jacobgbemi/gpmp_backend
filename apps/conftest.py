@@ -11,6 +11,7 @@ import itertools
 from decimal import Decimal
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -19,6 +20,16 @@ from apps.projects.models import Project, ProjectBudget, ProjectType
 
 DEFAULT_PASSWORD = "StrongPass123!"
 _project_code_counter = itertools.count(1)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_media_root(settings, tmp_path):
+    """
+    Every test gets its own throwaway MEDIA_ROOT, so uploads made during a
+    test run never land in (or get mixed up with) a developer's real
+    media/ directory, and nothing needs manual cleanup afterwards.
+    """
+    settings.MEDIA_ROOT = tmp_path / "media"
 
 
 @pytest.fixture
@@ -108,3 +119,62 @@ def project_a(make_project, org_a):
 @pytest.fixture
 def project_b(make_project, org_b):
     return make_project(org_b)
+
+
+# ---------------------------------------------------------------------------
+# File-upload fixtures (Stage 4) — real, valid magic bytes for each kind,
+# so tests exercise the actual signature check in common.file_validation
+# rather than a shortcut around it.
+# ---------------------------------------------------------------------------
+
+_JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00" + b"\x00" * 50
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+_PDF_BYTES = b"%PDF-1.4\n%fake pdf content for testing\n%%EOF"
+_MP4_BYTES = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 50
+
+
+@pytest.fixture
+def make_upload_file():
+    def _make(name, content, content_type):
+        return SimpleUploadedFile(name, content, content_type=content_type)
+
+    return _make
+
+
+@pytest.fixture
+def jpeg_file(make_upload_file):
+    return make_upload_file("photo.jpg", _JPEG_BYTES, "image/jpeg")
+
+
+@pytest.fixture
+def png_file(make_upload_file):
+    return make_upload_file("photo.png", _PNG_BYTES, "image/png")
+
+
+@pytest.fixture
+def pdf_file(make_upload_file):
+    return make_upload_file("document.pdf", _PDF_BYTES, "application/pdf")
+
+
+@pytest.fixture
+def mp4_file(make_upload_file):
+    return make_upload_file("clip.mp4", _MP4_BYTES, "video/mp4")
+
+
+@pytest.fixture
+def fake_jpeg_file(make_upload_file):
+    """.jpg extension + image content-type, but NOT actually JPEG bytes."""
+    return make_upload_file("fake.jpg", b"this is not an image, just text", "image/jpeg")
+
+
+@pytest.fixture
+def exe_file(make_upload_file):
+    return make_upload_file("virus.exe", b"MZ fake executable content", "application/octet-stream")
+
+
+@pytest.fixture
+def oversized_pdf_file(make_upload_file):
+    # Over both the document (20MB) and evidence (25MB) defaults — content
+    # doesn't need to be a real PDF since the size check runs before the
+    # signature check.
+    return make_upload_file("huge.pdf", b"%PDF-" + b"0" * (30 * 1024 * 1024), "application/pdf")

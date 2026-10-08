@@ -7,6 +7,13 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.documents import selectors as document_selectors
+from apps.documents import services as document_services
+from apps.documents.serializers import DocumentFolderSerializer, DocumentSerializer
+from apps.inspections import selectors as inspection_selectors
+from apps.inspections import services as inspection_services
+from apps.inspections.permissions import IsInspectionWriterOrReadOnly
+from apps.inspections.serializers import InspectionSerializer, ProjectEvidenceSerializer
 from apps.organizations.permissions import get_role
 from apps.projects import selectors, services
 from apps.projects.models import PaymentApplication
@@ -61,6 +68,14 @@ class ProjectViewSet(
     POST   /api/projects/{id}/risks/      log a risk
     GET    /api/projects/{id}/issues/
     POST   /api/projects/{id}/issues/     log an issue
+    GET    /api/projects/{id}/inspections/
+    POST   /api/projects/{id}/inspections/ schedule an inspection
+    GET    /api/projects/{id}/evidence/
+    POST   /api/projects/{id}/evidence/   upload evidence (multipart)
+    GET    /api/projects/{id}/folders/
+    POST   /api/projects/{id}/folders/    create a document folder
+    GET    /api/projects/{id}/documents/
+    POST   /api/projects/{id}/documents/  upload a document (multipart)
     GET    /api/projects/{id}/dashboard/
 
     Projects in an organization the user doesn't belong to are absent from
@@ -101,6 +116,15 @@ class ProjectViewSet(
 
     def get_queryset(self):
         return selectors.projects_for_user(self.request.user)
+
+    def get_permissions(self):
+        # The `inspections` and `evidence` sub-actions are the one place
+        # SITE_INSPECTOR needs write access, even though it's outside
+        # PROJECT_WRITE_ROLES — see apps.inspections.permissions. Every
+        # other action keeps the standard project-level check.
+        if self.action in ("inspections", "evidence"):
+            return [IsAuthenticated(), IsInspectionWriterOrReadOnly()]
+        return super().get_permissions()
 
     def filter_queryset(self, queryset):
         # Only the list endpoint is filterable. The detail and nested
@@ -363,6 +387,168 @@ class ProjectViewSet(
             queryset = queryset.filter(owner_id=owner_filter)
         page = self.paginate_queryset(queryset)
         serializer = IssueSerializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        methods=["GET"], responses=InspectionSerializer(many=True), tags=["projects"]
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=InspectionSerializer,
+        responses={201: InspectionSerializer},
+        tags=["projects"],
+    )
+    @action(detail=True, methods=["get", "post"], url_path="inspections")
+    def inspections(self, request, pk=None):
+        project = self.get_object()
+
+        if request.method == "POST":
+            serializer = InspectionSerializer(data=request.data, context={"project": project})
+            serializer.is_valid(raise_exception=True)
+            inspection = inspection_services.create_inspection(
+                project=project, **serializer.validated_data
+            )
+            return Response(
+                InspectionSerializer(inspection).data, status=status.HTTP_201_CREATED
+            )
+
+        queryset = inspection_selectors.inspections_for_project(project)
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        type_filter = request.query_params.get("inspection_type")
+        if type_filter:
+            queryset = queryset.filter(inspection_type=type_filter)
+        page = self.paginate_queryset(queryset)
+        serializer = InspectionSerializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        methods=["GET"], responses=ProjectEvidenceSerializer(many=True), tags=["projects"]
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=ProjectEvidenceSerializer,
+        responses={201: ProjectEvidenceSerializer},
+        tags=["projects"],
+    )
+    @action(detail=True, methods=["get", "post"], url_path="evidence")
+    def evidence(self, request, pk=None):
+        project = self.get_object()
+
+        if request.method == "POST":
+            serializer = ProjectEvidenceSerializer(
+                data=request.data, context={"project": project}
+            )
+            serializer.is_valid(raise_exception=True)
+            data = dict(serializer.validated_data)
+            uploaded_file = data.pop("file")
+            evidence_type = data.pop("evidence_type")
+            inspection = data.pop("inspection", None)
+            evidence = inspection_services.create_evidence(
+                project=project,
+                uploaded_by=request.user,
+                uploaded_file=uploaded_file,
+                evidence_type=evidence_type,
+                inspection=inspection,
+                **data,
+            )
+            return Response(
+                ProjectEvidenceSerializer(evidence).data, status=status.HTTP_201_CREATED
+            )
+
+        inspection_filter = request.query_params.get("inspection")
+        queryset = inspection_selectors.evidence_for_project(
+            project, inspection_id=inspection_filter
+        )
+        type_filter = request.query_params.get("evidence_type")
+        if type_filter:
+            queryset = queryset.filter(evidence_type=type_filter)
+        page = self.paginate_queryset(queryset)
+        serializer = ProjectEvidenceSerializer(
+            page if page is not None else queryset, many=True
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        methods=["GET"], responses=DocumentFolderSerializer(many=True), tags=["projects"]
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=DocumentFolderSerializer,
+        responses={201: DocumentFolderSerializer},
+        tags=["projects"],
+    )
+    @action(detail=True, methods=["get", "post"], url_path="folders")
+    def folders(self, request, pk=None):
+        project = self.get_object()
+
+        if request.method == "POST":
+            serializer = DocumentFolderSerializer(
+                data=request.data, context={"project": project}
+            )
+            serializer.is_valid(raise_exception=True)
+            folder = document_services.create_folder(
+                project=project, **serializer.validated_data
+            )
+            return Response(
+                DocumentFolderSerializer(folder).data, status=status.HTTP_201_CREATED
+            )
+
+        queryset = document_selectors.folders_for_project(project)
+        page = self.paginate_queryset(queryset)
+        serializer = DocumentFolderSerializer(
+            page if page is not None else queryset, many=True
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        methods=["GET"], responses=DocumentSerializer(many=True), tags=["projects"]
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=DocumentSerializer,
+        responses={201: DocumentSerializer},
+        tags=["projects"],
+    )
+    @action(detail=True, methods=["get", "post"], url_path="documents")
+    def documents(self, request, pk=None):
+        project = self.get_object()
+
+        if request.method == "POST":
+            serializer = DocumentSerializer(data=request.data, context={"project": project})
+            serializer.is_valid(raise_exception=True)
+            data = dict(serializer.validated_data)
+            uploaded_file = data.pop("file")
+            document_type = data.pop("document_type")
+            folder = data.pop("folder", None)
+            document = document_services.create_document(
+                project=project,
+                uploaded_by=request.user,
+                uploaded_file=uploaded_file,
+                document_type=document_type,
+                folder=folder,
+                **data,
+            )
+            return Response(
+                DocumentSerializer(document).data, status=status.HTTP_201_CREATED
+            )
+
+        folder_filter = request.query_params.get("folder")
+        queryset = document_selectors.documents_for_project(project, folder_id=folder_filter)
+        type_filter = request.query_params.get("document_type")
+        if type_filter:
+            queryset = queryset.filter(document_type=type_filter)
+        page = self.paginate_queryset(queryset)
+        serializer = DocumentSerializer(page if page is not None else queryset, many=True)
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)

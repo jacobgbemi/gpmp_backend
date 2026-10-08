@@ -6,14 +6,17 @@ something to show without a person having to click it all together by
 hand. Every record goes through the same services/selectors the API
 itself uses (apps.accounts, apps.organizations.services,
 apps.projects.services, apps.projects.selectors, apps.variations.services,
-apps.risks.services) — nothing here writes directly to a model that has a
-service, so the seeded data obeys the same validation and status-transition
-rules real requests do.
+apps.risks.services, apps.inspections.services, apps.documents.services)
+— nothing here writes directly to a model that has a service, so the
+seeded data obeys the same validation, status-transition, and file-upload
+rules real requests do. Evidence and document "files" are small in-memory
+byte strings built to actually pass the real magic-byte signature check
+in common.file_validation — not placeholders that bypass it.
 
 Idempotent: safe to run more than once. If the demo organization already
 has the demo project, the script prints a message and exits without
-creating duplicates or re-running the payment/variation/risk/issue
-workflows.
+creating duplicates or re-running the payment/variation/risk/issue/
+inspection/document workflows.
 
 Creates:
     - User:          demo@glintpm.dev (password: DemoPass123!)
@@ -37,15 +40,31 @@ Creates:
     - 4 Issues spanning every severity and every IssueStatus (OPEN,
       IN_PROGRESS, RESOLVED, CLOSED), with resolution text recorded on
       the ones that reached RESOLVED/CLOSED.
+    - 3 Inspections spanning the workflow: one COMPLETED with an
+      OBSERVATION overall result, one COMPLETED with a FAIL overall
+      result (payment verification — a real defect found), and one still
+      IN_PROGRESS with no items yet.
+    - 4 ProjectEvidence files (two linked to inspections, two standalone —
+      a progress video and a signed delivery note), each a real small
+      JPEG/MP4/PDF that passes magic-byte validation, never a fake stub.
+    - 3 DocumentFolders ("Contracts", "Drawings", and "Signed Copies"
+      nested under "Contracts") and 3 Documents: a CONTRACT (carried to
+      version 2, demonstrating versioning), a DRAWING, and a BOQ with no
+      folder.
 
 Run with:
     python manage.py shell -c "import scripts.seed_demo_data as s; s.run()"
 """
 
-from datetime import date
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
 from decimal import Decimal
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+
 from apps.accounts.models import User
+from apps.documents import services as document_services
+from apps.inspections import services as inspection_services
 from apps.organizations import services as org_services
 from apps.organizations.models import Organization, OrganizationMembership, Role
 from apps.projects import services as project_services
@@ -300,6 +319,144 @@ ISSUES = [
         date(2026, 7, 1),
         "CLOSED",
         "Generator relocated and acoustic enclosure installed; complainant confirmed resolved.",
+    ),
+]
+
+# Minimal but genuinely valid file content for each kind — real magic
+# bytes, so apps.inspections/documents.services' upload validation (see
+# common.file_validation) is exercised for real, not bypassed.
+_JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00" + b"\x00" * 100
+_MP4_BYTES = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100
+_PDF_BYTES = b"%PDF-1.4\n%demo content\n%%EOF"
+
+
+def _jpeg(name: str) -> SimpleUploadedFile:
+    return SimpleUploadedFile(name, _JPEG_BYTES, content_type="image/jpeg")
+
+
+def _mp4(name: str) -> SimpleUploadedFile:
+    return SimpleUploadedFile(name, _MP4_BYTES, content_type="video/mp4")
+
+
+def _pdf(name: str, extra: bytes = b"") -> SimpleUploadedFile:
+    return SimpleUploadedFile(name, _PDF_BYTES + extra, content_type="application/pdf")
+
+
+# (inspection_type, inspection_date, location, summary, recommendations,
+#  items, target_lifecycle_status)
+# items: list of (category, description, item_status, severity, recommendation)
+INSPECTIONS = [
+    (
+        "ROUTINE",
+        date(2026, 7, 15),
+        "Whole site",
+        "Monthly routine walk-through of the Lekki residence site.",
+        "Continue current housekeeping standard.",
+        [
+            ("SAFETY", "Site hoarding and signage intact", "PASS", "LOW", ""),
+            ("PROGRESS", "Works proceeding per programme", "PASS", "LOW", ""),
+            (
+                "DOCUMENTATION",
+                "Daily site diary missing entries for two days",
+                "OBSERVATION",
+                "LOW",
+                "Remind site team to complete the diary daily.",
+            ),
+        ],
+        "COMPLETED",
+    ),
+    (
+        "PAYMENT_VERIFICATION",
+        date(2026, 9, 10),
+        "Level 2",
+        "Verification inspection supporting payment application PA-0002.",
+        "Withhold sign-off on affected bathrooms pending re-grouting.",
+        [
+            ("QUALITY", "Tile grouting uneven in level 2 bathrooms", "FAIL", "MEDIUM", "Re-grout affected area before payment certification."),
+            ("PROGRESS", "Claimed quantities match site measurement", "PASS", "LOW", ""),
+        ],
+        "COMPLETED",
+    ),
+    (
+        "QUALITY",
+        date(2026, 9, 20),
+        "Pool house",
+        "In-progress quality check on the pool house steel structure.",
+        "",
+        [],
+        "IN_PROGRESS",
+    ),
+]
+
+# (title, description, evidence_type, file_builder, captured_at, inspection_index_or_None)
+# inspection_index_or_None indexes into INSPECTIONS above (0-based), or
+# None for standalone evidence not tied to any inspection.
+EVIDENCE = [
+    (
+        "Site hoarding and signage",
+        "Photo confirming perimeter hoarding and safety signage in place.",
+        "PHOTO",
+        lambda: _jpeg("hoarding.jpg"),
+        datetime(2026, 7, 15, 9, 30, tzinfo=dt_timezone.utc),
+        0,
+    ),
+    (
+        "Uneven tile grouting — level 2 bathroom",
+        "Close-up of the grouting defect referenced in the payment verification inspection.",
+        "PHOTO",
+        lambda: _jpeg("grouting-defect.jpg"),
+        datetime(2026, 9, 10, 11, 15, tzinfo=dt_timezone.utc),
+        1,
+    ),
+    (
+        "September progress walkthrough",
+        "Standalone video walkthrough of the site, not tied to a specific inspection.",
+        "VIDEO",
+        lambda: _mp4("progress-walkthrough.mp4"),
+        datetime(2026, 9, 15, 14, 0, tzinfo=dt_timezone.utc),
+        None,
+    ),
+    (
+        "Signed material delivery note",
+        "Scanned, signed delivery note for the structural steel delivery.",
+        "DOCUMENT",
+        lambda: _pdf("delivery-note.pdf"),
+        None,
+        None,
+    ),
+]
+
+# (name, description, parent_name_or_None)
+FOLDERS = [
+    ("Contracts", "Executed contracts and agreements.", None),
+    ("Drawings", "Architectural and structural drawings.", None),
+    ("Signed Copies", "Fully executed, signed contract copies.", "Contracts"),
+]
+
+# (name, document_type, folder_name_or_None, file_builder, versions)
+# versions: list of change_notes for each version after the first (so
+# len(versions) additional POSTs to /versions/ happen after creation).
+DOCUMENTS = [
+    (
+        "Main Building Contract",
+        "CONTRACT",
+        "Signed Copies",
+        lambda: _pdf("main-contract-v1.pdf"),
+        ["Updated clause 5.2 on variation valuation after legal review."],
+    ),
+    (
+        "Ground Floor Plan",
+        "DRAWING",
+        "Drawings",
+        lambda: _jpeg("ground-floor-plan.jpg"),
+        [],
+    ),
+    (
+        "Bill of Quantities",
+        "BOQ",
+        None,
+        lambda: _pdf("boq.pdf"),
+        [],
     ),
 ]
 
@@ -608,6 +765,100 @@ def _seed_issues(project: Project, owner: User) -> None:
     print(f"Seeded {len(ISSUES)} issues spanning OPEN/IN_PROGRESS/RESOLVED/CLOSED")
 
 
+def _seed_inspections_and_evidence(project: Project, inspector: User) -> None:
+    inspections = []
+    for (
+        inspection_type,
+        inspection_date,
+        location,
+        summary,
+        recommendations,
+        items,
+        target_status,
+    ) in INSPECTIONS:
+        inspection = inspection_services.create_inspection(
+            project=project,
+            inspector=inspector,
+            inspection_type=inspection_type,
+            inspection_date=inspection_date,
+            location=location,
+            summary=summary,
+            recommendations=recommendations,
+        )
+        for category, description, item_status, severity, recommendation in items:
+            inspection_services.add_inspection_item(
+                inspection=inspection,
+                category=category,
+                description=description,
+                status=item_status,
+                severity=severity,
+                recommendation=recommendation,
+            )
+        if target_status == "COMPLETED":
+            inspection_services.complete_inspection(inspection=inspection)
+        elif target_status == "IN_PROGRESS":
+            inspection_services.update_inspection(
+                inspection=inspection, data={"status": "IN_PROGRESS"}
+            )
+        inspections.append(inspection)
+
+    print(
+        f"Seeded {len(INSPECTIONS)} inspections (2 COMPLETED — one OBSERVATION, "
+        "one FAIL — and 1 IN_PROGRESS)"
+    )
+
+    for title, description, evidence_type, file_builder, captured_at, inspection_index in EVIDENCE:
+        inspection_services.create_evidence(
+            project=project,
+            uploaded_by=inspector,
+            uploaded_file=file_builder(),
+            evidence_type=evidence_type,
+            inspection=inspections[inspection_index] if inspection_index is not None else None,
+            title=title,
+            description=description,
+            captured_at=captured_at,
+        )
+
+    print(f"Seeded {len(EVIDENCE)} evidence files (2 inspection-linked, 2 standalone)")
+
+
+def _seed_folders_and_documents(project: Project, uploaded_by: User) -> None:
+    folders_by_name = {}
+    for name, description, parent_name in FOLDERS:
+        folder = document_services.create_folder(
+            project=project,
+            name=name,
+            description=description,
+            parent=folders_by_name.get(parent_name),
+        )
+        folders_by_name[name] = folder
+
+    print(f"Seeded {len(FOLDERS)} document folders (including one nested subfolder)")
+
+    for name, document_type, folder_name, file_builder, version_notes in DOCUMENTS:
+        document = document_services.create_document(
+            project=project,
+            uploaded_by=uploaded_by,
+            uploaded_file=file_builder(),
+            document_type=document_type,
+            folder=folders_by_name.get(folder_name),
+            name=name,
+        )
+        for change_notes in version_notes:
+            document = document_services.create_new_version(
+                previous=document,
+                uploaded_by=uploaded_by,
+                uploaded_file=_pdf(f"{name.lower().replace(' ', '-')}-v2.pdf"),
+                change_notes=change_notes,
+            )
+
+    total_versions = len(DOCUMENTS) + sum(len(v) for _, _, _, _, v in DOCUMENTS)
+    print(
+        f"Seeded {len(DOCUMENTS)} documents ({total_versions} total version rows — "
+        "the Main Building Contract carries 2 versions)"
+    )
+
+
 def run() -> None:
     user = _get_or_create_demo_user()
     organization = _get_or_create_demo_organization(user)
@@ -629,6 +880,8 @@ def run() -> None:
     _seed_variations(project, created_by=user, approver=user)
     _seed_risks(project, owner=user)
     _seed_issues(project, owner=user)
+    _seed_inspections_and_evidence(project, inspector=user)
+    _seed_folders_and_documents(project, uploaded_by=user)
 
     print()
     print("Demo data seeded.")

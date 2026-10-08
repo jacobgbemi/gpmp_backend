@@ -3,21 +3,26 @@
 Owner-side Project Control & Assurance platform for high-value construction
 and property projects.
 
-> **Stage 0 + Stage 1 + Stage 2 + Stage 3 scope.** Stage 0 established the
-> Django project foundation (settings, Unfold admin, health check, OpenAPI
-> docs, tooling). Stage 1 added the multi-tenant security foundation: a
-> custom email-based `User`, JWT authentication, `Organization` /
-> `OrganizationMembership`, role-based permissions, and enforced
-> organization isolation. Stage 2 established the financial and progress
-> truth of a project: `Project`, `ProjectBudget`/`BudgetItem`,
+> **Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4 scope.** Stage 0
+> established the Django project foundation (settings, Unfold admin,
+> health check, OpenAPI docs, tooling). Stage 1 added the multi-tenant
+> security foundation: a custom email-based `User`, JWT authentication,
+> `Organization` / `OrganizationMembership`, role-based permissions, and
+> enforced organization isolation. Stage 2 established the financial and
+> progress truth of a project: `Project`, `ProjectBudget`/`BudgetItem`,
 > `ProgressUpdate`, and `PaymentApplication`, with a payment review state
-> machine and an owner-facing dashboard. Stage 3 adds change and risk
+> machine and an owner-facing dashboard. Stage 3 added change and risk
 > management: `Variation` (with its own approval state machine, distinct
 > from payments), `Risk` (automatic probability × impact scoring), and
-> `Issue` — and extends the dashboard to distinguish proposed variation
-> exposure from approved financial impact. Inspections, Documents,
-> Reports, and Notifications are still out of scope — they land in later
-> stages.
+> `Issue` — and extended the dashboard to distinguish proposed variation
+> exposure from approved financial impact. Stage 4 adds site assurance and
+> document management: `Inspection`/`InspectionItem` (with an automatic
+> overall-result computation), `ProjectEvidence`, and
+> `DocumentFolder`/`Document` (with basic versioning) — all built around a
+> file-upload security model where every byte is validated against real
+> magic bytes and served only through authenticated, permission-checked
+> download endpoints, never a public URL. Reports and Notifications are
+> still out of scope — they land in later stages.
 
 ## Architecture at a glance
 
@@ -91,16 +96,37 @@ apps/
     views.py                  # RiskViewSet, IssueViewSet
     admin.py                   # Unfold-registered Risk/Issue admins
     tests/
+  inspections/         # Inspection, InspectionItem, ProjectEvidence
+    models.py            # overall_status is server-computed, never client-set
+    selectors.py          # inspections_for_project, evidence_for_project, ...
+    services.py             # complete_inspection(), create_evidence() (file upload)
+    permissions.py           # INSPECTION_WRITE_ROLES (adds SITE_INSPECTOR)
+    serializers.py            # InspectionSerializer, ProjectEvidenceSerializer
+    views.py                   # InspectionViewSet (+ items/complete),
+                                # InspectionItemViewSet, EvidenceViewSet (+ download)
+    admin.py                    # Unfold-registered admins for all 3 models
+    tests/
+  documents/           # DocumentFolder, Document (with basic versioning)
+    models.py            # document_group + version + is_latest — see models.py
+                          # docstring for the versioning design
+    selectors.py          # documents_for_project (latest-only by default), versions_of
+    services.py             # create_document(), create_new_version() (file upload)
+    permissions.py           # IsDocumentWriterOrReadOnly (PROJECT_WRITE_ROLES)
+    serializers.py            # DocumentFolderSerializer, DocumentSerializer
+    views.py                   # FolderViewSet, DocumentViewSet (+ download/versions)
+    admin.py                    # Unfold-registered Folder/Document admins
+    tests/
 common/
   models.py            # UUIDModel / TimeStampedModel / BaseModel
   validators.py        # MONEY_VALIDATORS / PERCENT_VALIDATORS
+  file_validation.py   # magic-byte upload validation + safe storage paths
   permissions.py
   pagination.py
   exceptions.py        # consistent error envelope
   responses.py         # consistent success/error envelope
   utils.py
 scripts/
-  seed_demo_data.py     # placeholder until further business models exist
+  seed_demo_data.py     # realistic demo org/project with data for every stage
 tests/
   test_project_setup.py # Django boot / admin / Unfold / OpenAPI / JWT config checks
 requirements/
@@ -714,6 +740,273 @@ automatically by request test scripts (`user_id` is captured by
 `foreign_user_id` manually to IDs belonging to a *different* organization
 to exercise the IDOR checks.
 
+## Stage 4 — Inspections, evidence, and documents
+
+### File security review
+
+This is the highest-risk surface introduced so far — arbitrary binary
+content, uploaded by authenticated-but-not-fully-trusted users, that other
+users later download. `common/file_validation.py` and the authenticated
+download views are where every control below actually lives.
+
+- **Type validation is three-layered, and any one layer disagreeing is a
+  rejection.** `validate_upload()` checks, in order: (1) the file
+  extension is in a whitelist, (2) the browser-reported `content_type`
+  matches that same whitelist entry, (3) the file's own leading bytes
+  match a known magic-byte signature for that type (JPEG `\xff\xd8\xff`,
+  PNG's 8-byte signature, PDF's `%PDF-`, the ZIP signature `PK\x03\x04`
+  shared by `docx`/`xlsx`/`pptx`, MP4/MOV's `ftyp` atom, AVI's `RIFF`
+  header). A `.jpg` file that is actually a text file fails at step 3 even
+  though its extension and declared content-type both claim to be an
+  image — `test_spoofed_magic_bytes_rejected` proves this directly. csv/txt
+  have no reliable magic number, so they're backed by a text-sniff
+  heuristic instead (mostly-printable bytes, no NUL).
+- **No `libmagic`/system dependency.** The signature table is hand-rolled
+  and covers exactly the file kinds this app whitelists — portable, fully
+  under test, nothing to install on the host.
+- **The storage path is never derived from the client-supplied filename —
+  structurally, not just "sanitized."** `safe_upload_path()` builds every
+  path from a fixed prefix, the project's own UUID, and a freshly
+  generated UUID filename with the already-whitelisted extension. There is
+  no client-controlled segment in the path at all, so path traversal
+  (`../../etc/passwd`, null-byte tricks, etc.) has no surface to exploit
+  — it isn't defended against, it's architecturally impossible. The
+  original filename is preserved separately, purely for display, after
+  `safe_display_filename()` strips it to directory-component-free, safe
+  display characters.
+- **Size limits are enforced server-side before anything else runs** —
+  `MAX_EVIDENCE_UPLOAD_SIZE_MB` (default 25) and
+  `MAX_DOCUMENT_UPLOAD_SIZE_MB` (default 20), both overridable via
+  environment variables, checked as the very first line of
+  `validate_upload()`.
+- **Ownership and ID-based fields are never trusted from the client.**
+  `uploaded_by` is always `request.user`, never a request field. A
+  `ProjectEvidence.inspection` or `Document.folder` reference is validated
+  to actually belong to the same project the upload is scoped to
+  (`create_evidence`'s and `create_document`'s project-match checks) —
+  and, as with every cross-reference in this codebase, the serializer's
+  queryset is restricted to the project's own records to begin with, so a
+  foreign object isn't even a selectable choice.
+- **Backend remains authoritative — there is no public file URL,
+  anywhere, ever.** `GET /api/evidence/{id}/download/` and
+  `GET /api/documents/{id}/download/` are the *only* way to fetch file
+  bytes. Both stream the file through `django.http.FileResponse` from
+  inside a permission-checked DRF view — never `obj.file.url`, which is
+  deliberately absent from every serializer (`download_url` instead
+  points at the authenticated API path). `MEDIA_URL` is intentionally
+  never wired into `urlpatterns` with Django's `static()` helper, even in
+  development (see the comment in `config/settings/base.py`) — there is
+  no code path, in this codebase, that serves `MEDIA_ROOT` content
+  without an auth + organization-membership check first.
+  `test_download_requires_authentication` and
+  `test_foreign_org_user_cannot_download` (present for both evidence and
+  documents) verify this directly, and a raw guess at the media path
+  returns a plain 404.
+
+### Storage architecture — ready for cloud object storage
+
+Stage 4 deliberately keeps local filesystem storage
+(`FileSystemStorage`, via `MEDIA_ROOT`) rather than wiring in S3 now, but
+nothing in the application code assumes a local filesystem: every file
+operation goes through Django's `FieldFile` API (`.open()`, assignment
+from an `UploadedFile`) via `default_storage`, never a raw path on disk.
+Swapping in S3-compatible storage later is a **settings-only change**:
+
+1. Add `django-storages` (and `boto3`) to `requirements/base.txt`.
+2. Point `STORAGES["default"]` at `storages.backends.s3.S3Storage` with
+   bucket/region/credential environment variables — credentials come from
+   the environment (or an IAM role in production), never hardcoded or
+   returned to a client.
+3. No changes needed in `apps/inspections/` or `apps/documents/` — the
+   `upload_to` callables, `validate_upload()`, and the download views are
+   all storage-backend-agnostic already.
+
+One thing *would* change at that point: the authenticated-download views
+currently proxy bytes through Django, which is simple and secure but not
+the most efficient at scale. A production S3 setup would typically
+instead have the download view issue a short-lived **signed URL**
+(`default_storage.url(name)` with an expiry, which `django-storages`
+supports) and redirect the client to it, rather than streaming every byte
+through the Django process — still backend-authoritative (the view still
+checks permissions before issuing the URL), just more efficient. This is
+a natural follow-up once real cloud storage is in place, not something
+Stage 4 needs to solve for local development and testing.
+
+### Evidence vs. Document — two different jobs
+
+`ProjectEvidence` and `Document` are both "a file attached to a project,"
+but they answer different questions and are deliberately separate models:
+
+- **`ProjectEvidence`** answers "what did the site actually look like at
+  this moment" — a photo, video, or scan captured in the field, optionally
+  tied to a specific `Inspection` (`inspection` is nullable — evidence can
+  stand alone, e.g. a general progress video) and carrying
+  `captured_at`/`latitude`/`longitude`/`metadata` for *when and where* it
+  was captured. It has no versioning concept — a site photo is a point-in-
+  time fact, not a document that gets superseded.
+- **`Document`** answers "what is the current, governing paperwork for
+  this project" — a contract, drawing, BOQ, schedule, or report, organized
+  into `DocumentFolder`s, with `document_type` and a `status` lifecycle
+  (`DRAFT`/`ACTIVE`/`ARCHIVED`), and — unlike evidence — it *does* get
+  superseded, hence versioning.
+
+### Document versioning
+
+All versions of one document share a `document_group` (a UUID generated
+fresh for version 1 and copied forward for every later version) plus an
+integer `version`. There is no self-referential FK chain to walk —
+`Document.objects.filter(document_group=X)` returns every version
+directly in one query (`apps.documents.selectors.versions_of`). `is_latest`
+is a denormalized boolean, flipped by
+`apps.documents.services.create_new_version` in the same transaction that
+creates the new version row, so "what's current" is never ambiguous even
+mid-request — `apps.projects.selectors`-style project document listings
+filter to `is_latest=True` by default
+(`test_project_document_list_shows_only_latest_version`).
+
+- `POST /api/documents/{id}/versions/` is the *only* way a document gets a
+  new version — a plain `PATCH /api/documents/{id}/` is metadata-only
+  (`name`, `description`, `document_type`, `status`, `folder`) and the
+  `file` field isn't even present on that serializer once the document
+  exists (`test_patch_cannot_replace_the_file`).
+- A new version inherits `name`/`description`/`document_type`/`status`
+  from the version before it (`test_new_version_inherits_metadata_from_previous`)
+  — only the file and `change_notes` are genuinely new per version.
+- **Duplicate version numbers are impossible by construction** — version
+  is always server-computed as `previous.version + 1`, never
+  client-supplied — and the database still carries a
+  `UniqueConstraint(document_group, version)` as a backstop, verified by
+  `test_duplicate_version_number_rejected_at_database_level`, which
+  bypasses the service entirely to prove the database itself is the real
+  guarantee, not just application-level discipline.
+
+### Inspection workflow & overall_status computation
+
+`Inspection.overall_status` is never client-set — like `Risk.risk_score`
+in Stage 3, it's always computed server-side, here by
+`apps.inspections.services.complete_inspection`, the *only* path by which
+`status` can reach `COMPLETED` (a `PATCH {"status": "COMPLETED"}` is
+rejected with a pointer to the correct endpoint, mirroring how Stage 3
+blocked `PATCH {"status": "APPROVED"}` on a variation). The computation,
+in priority order:
+
+```
+any item FAIL?         → overall_status = FAIL
+else any OBSERVATION?  → overall_status = OBSERVATION
+else any items at all?  → overall_status = PASS
+else (no items)          → overall_status = PENDING
+```
+
+**Inspection items are locked the moment their inspection is
+`COMPLETED`** — `_ensure_items_editable` blocks both adding a new item and
+editing an existing one (`test_items_locked_after_inspection_completed`,
+`test_cannot_add_item_after_inspection_completed`), so a finalized
+inspection's record can always be trusted, the same immutability
+principle as Stage 2's completed `ProgressUpdate` history, just scoped to
+one lifecycle stage rather than forever.
+
+### SITE_INSPECTOR: the first role with real write access
+
+`SITE_INSPECTOR` has existed since Stage 1's role enum but never granted
+any actual permission until now. `apps.inspections.permissions.INSPECTION_WRITE_ROLES`
+extends Stage 2's `PROJECT_WRITE_ROLES` with it — a site inspector can
+create/update inspections, manage inspection items, and upload evidence,
+without needing `PROJECT_MANAGER`/`PROJECT_CONTROLS`/admin privileges over
+the rest of the project (`test_site_inspector_can_create_inspection`,
+`test_site_inspector_can_upload_evidence`). Document management stays with
+the broader `PROJECT_WRITE_ROLES` only — `SITE_INSPECTOR` is not extended
+there, since folders/contracts/drawings are a different responsibility
+than field inspection.
+
+One implementation note worth being explicit about: because
+`inspections`/`evidence` are sub-actions on `ProjectViewSet` (not their
+own top-level create endpoint), `ProjectViewSet.get_permissions()`
+special-cases exactly those two actions to check against
+`INSPECTION_WRITE_ROLES` instead of the view's default
+`PROJECT_WRITE_ROLES` — every other `ProjectViewSet` action keeps the
+standard check.
+
+### Permission rules
+
+- **`INSPECTION_WRITE_ROLES`** (`PLATFORM_ADMIN`, `ORGANIZATION_ADMIN`,
+  `PROJECT_MANAGER`, `PROJECT_CONTROLS`, `SITE_INSPECTOR`) — required to
+  create/update an inspection, add/edit inspection items (while
+  unlocked), or upload evidence.
+- **`PROJECT_WRITE_ROLES`** (unchanged from Stage 2) — required to
+  create/manage document folders and documents. `SITE_INSPECTOR` does not
+  get document write access.
+- Both `complete_inspection` and evidence/document upload resolve the
+  requester's role via the same `get_project_role` used throughout the
+  codebase since Stage 2 — never from anything the client supplied.
+- Organization isolation extends through every Stage 4 resource exactly
+  as it has since Stage 1: an inspection, inspection item, evidence file,
+  folder, or document belonging to an organization the requester isn't a
+  member of is absent from its queryset entirely — 404, never 403,
+  including at `/download/` and `/complete/`.
+
+### API examples
+
+**Run an inspection end-to-end:**
+```
+POST /api/projects/{id}/inspections/
+{ "inspection_type": "QUALITY", "inspection_date": "2026-09-01",
+  "inspector": "<user-id>", "location": "Level 2" }
+→ 201 { "id": "...", "status": "SCHEDULED", "overall_status": "PENDING" }
+
+POST /api/inspections/{id}/items/
+{ "category": "QUALITY", "description": "Tile grouting uneven",
+  "status": "FAIL", "severity": "MEDIUM" }
+
+POST /api/inspections/{id}/complete/
+→ 200 { "status": "COMPLETED", "overall_status": "FAIL", "completed_at": "..." }
+```
+
+**Upload evidence (multipart/form-data):**
+```
+POST /api/projects/{id}/evidence/
+  title=Crack in slab
+  evidence_type=PHOTO
+  inspection=<inspection-id>          (optional)
+  file=@photo.jpg
+→ 201 { "id": "...", "download_url": "/api/evidence/.../download/", ... }
+
+GET /api/evidence/{id}/download/      (Authorization header required)
+→ 200, streamed file bytes, Content-Disposition: attachment
+```
+
+**Upload a document and a new version:**
+```
+POST /api/projects/{id}/documents/
+  name=Main Contract
+  document_type=CONTRACT
+  folder=<folder-id>                  (optional)
+  file=@contract.pdf
+→ 201 { "version": 1, "is_latest": true, ... }
+
+POST /api/documents/{id}/versions/
+  change_notes=Updated clause 5.2
+  file=@contract-revised.pdf
+→ 201 { "version": 2, "is_latest": true, ... }
+  (the version-1 row's is_latest flips to false in the same transaction)
+```
+
+### Postman workflow (Stage 4 additions)
+
+Three new folders: **Inspections (Stage 4)** (create → add items → complete
+→ verify `overall_status`), **Evidence (Stage 4)** (upload a real JPEG/PDF
+via multipart form-data → retrieve → download), and **Documents (Stage 4)**
+(create a folder → upload a document → retrieve → upload a new version →
+list versions → download), plus **Inspections/Evidence/Documents —
+failure states** covering a spoofed-magic-bytes upload, a disallowed
+extension, an oversized file, item edits after completion, and IDOR checks
+across all three resources. New environment variables: `inspection_id`,
+`inspection_item_id`, `evidence_id`, `folder_id`, and `document_id` are set
+automatically by request test scripts; set `foreign_inspection_id` /
+`foreign_evidence_id` / `foreign_document_id` manually to IDs belonging to
+a *different* organization to exercise the IDOR checks. Postman's file
+picker is used directly for the `file` field on upload requests — select
+any small real image or PDF from your machine.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` and adjust as needed:
@@ -732,6 +1025,8 @@ cp .env.example .env
 | `ACCESS_TOKEN_LIFETIME_MINUTES` | JWT access token lifetime | `30` |
 | `REFRESH_TOKEN_LIFETIME_DAYS` | JWT refresh token lifetime | `7` |
 | `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | Redis URLs | `redis://localhost:6379/0` |
+| `MAX_EVIDENCE_UPLOAD_SIZE_MB` | Max size for a `ProjectEvidence` upload | `25` |
+| `MAX_DOCUMENT_UPLOAD_SIZE_MB` | Max size for a `Document` upload | `20` |
 
 Production (`config/settings/production.py`) deliberately has **no**
 fallback for `SECRET_KEY` or `ALLOWED_HOSTS` — the process refuses to start
@@ -811,7 +1106,8 @@ before using it outside local testing.
 pytest
 ```
 
-This validates, per the Stage 0 + Stage 1 + Stage 2 + Stage 3 checklist:
+This validates, per the Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4
+checklist:
 
 - Django starts and settings load cleanly
 - the database connection works
@@ -819,10 +1115,11 @@ This validates, per the Stage 0 + Stage 1 + Stage 2 + Stage 3 checklist:
 - `/admin/` loads and Unfold is correctly installed/configured, with
   `User`, `Organization`, `OrganizationMembership`, `Project`,
   `ProjectBudget`, `BudgetItem`, `ProgressUpdate`, `PaymentApplication`,
-  `Variation`, `Risk`, and `Issue` all registered
+  `Variation`, `Risk`, `Issue`, `Inspection`, `InspectionItem`,
+  `ProjectEvidence`, `DocumentFolder`, and `Document` all registered
 - no business-domain apps/tables beyond
-  accounts/organizations/projects/variations/risks have been prematurely
-  introduced
+  accounts/organizations/projects/variations/risks/inspections/documents
+  have been prematurely introduced
 - OpenAPI schema, Swagger UI, and ReDoc all load
 - JWT settings (lifetimes, rotation, blacklisting) are configured as
   documented above
@@ -888,6 +1185,33 @@ This validates, per the Stage 0 + Stage 1 + Stage 2 + Stage 3 checklist:
 - **organization isolation extends through every Stage 3 resource** —
   variation, risk, and issue access (including the `/approve/` action)
   all confirmed to 404 across organizations
+- **file upload security**: extension + declared content-type + real
+  magic-byte signature must all agree, for every whitelisted kind
+  (JPEG/PNG/GIF, MP4/MOV/AVI, PDF/DOCX/XLSX/PPTX/CSV/TXT) — a spoofed
+  `.jpg` that isn't real JPEG bytes, a disallowed extension, and an
+  oversized file are all rejected, for both evidence and documents
+- **inspection workflow**: `overall_status` is always correctly computed
+  from item statuses (FAIL > OBSERVATION > PASS > PENDING priority), is
+  never client-settable, `status` can only reach `COMPLETED` via the
+  dedicated action, and inspection items are provably locked (both edits
+  and new additions) the moment their inspection completes
+- **`SITE_INSPECTOR` genuinely gets write access** to inspections and
+  evidence (but not documents) — the first role in this codebase to carry
+  real permission weight since being introduced in Stage 1
+- **document versioning**: a new version inherits metadata, correctly
+  flips the previous version's `is_latest` to `false` in the same
+  transaction, a metadata `PATCH` can never touch the file, and the
+  database's own `UniqueConstraint` on `(document_group, version)` is
+  verified directly as the real backstop against duplicates
+- **authenticated-only file access**: downloading evidence or a document
+  without a token returns 401, a raw guess at the media path returns 404
+  (no public static serving is wired up at all), and organization
+  isolation is verified at the `/download/` endpoint specifically, not
+  just at the metadata endpoints
+- **organization isolation extends through every Stage 4 resource** —
+  inspection, inspection item, evidence, folder, and document access all
+  confirmed to 404 across organizations, including at `/complete/` and
+  both `/download/` endpoints
 
 Run with coverage:
 
@@ -913,15 +1237,17 @@ OpenAPI schema generation is powered by `drf-spectacular`, configured in
 
 See [Postman workflow](#postman-workflow),
 [Postman workflow (Stage 2 additions)](#postman-workflow-stage-2-additions),
-and [Postman workflow (Stage 3 additions)](#postman-workflow-stage-3-additions)
+[Postman workflow (Stage 3 additions)](#postman-workflow-stage-3-additions),
+and [Postman workflow (Stage 4 additions)](#postman-workflow-stage-4-additions)
 above for the full walkthrough. Quick version: import both files from
 `postman/`, select the environment, run **Auth → Login** then
 **Auth → Current user (/me/)** first (these save your tokens and
 `user_id` automatically), then **Organizations → Create organization**,
 then work through **Projects (Stage 2)**, **Variations (Stage 3)**,
-**Risks (Stage 3)**, and **Issues (Stage 3)** top to bottom.
+**Risks (Stage 3)**, **Issues (Stage 3)**, **Inspections (Stage 4)**,
+**Evidence (Stage 4)**, and **Documents (Stage 4)** top to bottom.
 
-## Security notes (Stage 0 + Stage 1 + Stage 2 + Stage 3)
+## Security notes (Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4)
 
 - `SECRET_KEY` and `ALLOWED_HOSTS` have **no fallback** in production —
   missing them fails fast at startup instead of running insecurely.
@@ -996,8 +1322,30 @@ then work through **Projects (Stage 2)**, **Variations (Stage 3)**,
   proof of membership or access — every request re-derives the caller's
   role/membership from the database
   (`apps.projects.permissions.get_project_role`).
+- **File upload validation**: every upload is checked against extension +
+  declared content-type + real magic-byte signature, all three required to
+  agree — see [File security review](#file-security-review) above for the
+  full writeup. Size limits are enforced server-side
+  (`MAX_EVIDENCE_UPLOAD_SIZE_MB`/`MAX_DOCUMENT_UPLOAD_SIZE_MB`) before any
+  other check runs.
+- **No path traversal surface**: storage paths are built entirely from
+  server-controlled values (`common.file_validation.safe_upload_path`) —
+  the client-supplied filename never appears in the storage path, only in
+  a separately sanitized `original_filename` display field.
+- **No public file URLs, ever**: every serializer exposes a
+  `download_url` pointing at an authenticated API endpoint, never
+  `obj.file.url`. `MEDIA_URL` is never wired into `urlpatterns` — there is
+  no code path that serves an uploaded file without an auth +
+  organization-membership check first.
+- **Evidence/document ownership**: `uploaded_by` is always `request.user`,
+  never a client-supplied field, on both `ProjectEvidence` and `Document`.
+- **Cross-reference validation**: a `ProjectEvidence.inspection` or
+  `Document.folder` is validated to belong to the same project as the
+  upload itself, both by restricting the field's queryset to the
+  project's own records and again at the service layer — defense in
+  depth, the same pattern Stage 3 established for `Risk`/`Issue.owner`.
 
-## Architectural decisions (Stage 0 + Stage 1 + Stage 2 + Stage 3)
+## Architectural decisions (Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4)
 
 1. **Settings are split by environment** (`base` / `development` /
    `production`) rather than a single `settings.py` with `if DEBUG:`
@@ -1128,3 +1476,50 @@ then work through **Projects (Stage 2)**, **Variations (Stage 3)**,
     existing dashboard contract stable for anything already consuming it,
     while still giving the owner the "true current approved budget
     including variations" figure the business problem calls for.
+22. **Magic-byte validation is hand-rolled, not `libmagic`-based** — a
+    small, explicit signature table for exactly the file kinds this app
+    whitelists is more portable (no system library to install on every
+    host and CI runner), fully under test, and easier to audit line-by-line
+    than depending on a native library's much larger and more general
+    detection surface. The tradeoff — it only recognizes the kinds we
+    explicitly taught it — is the right one for a closed whitelist.
+23. **Storage paths are built from zero client input, not "sanitized"
+    client input** — `safe_upload_path()` never touches the client-supplied
+    filename at all; it's pure server-controlled values (prefix, project
+    UUID, a fresh UUID, the already-whitelisted extension). This is a
+    structural guarantee against path traversal, not a defensive filter
+    that could have a bypass — there's nothing in the path for an attacker
+    to influence in the first place.
+24. **The authenticated-download views proxy bytes through Django rather
+    than issuing signed storage URLs** — the simpler, more directly secure
+    choice for local `FileSystemStorage`, where there's no meaningful
+    concept of a signed URL to begin with. This is a deliberate, documented
+    tradeoff (see "Storage architecture" above) rather than an oversight:
+    swapping to cloud storage later would naturally evolve this to
+    signed-URL redirects without changing the permission-checking contract
+    the views already enforce.
+25. **`ProjectEvidence` and `Document` are separate models, not one
+    "file attachment" model with a type flag** — they answer genuinely
+    different questions (what did the site look like, vs. what is the
+    current governing paperwork) and have incompatible lifecycles: evidence
+    is a point-in-time fact with no versioning concept, while a document
+    is explicitly expected to be superseded. Forcing one model to cover
+    both would mean either a nullable, type-conditional version/group
+    pair or evidence rows carrying meaningless version fields.
+26. **Document versioning uses a shared `document_group` UUID + integer
+    `version`, not a self-referential "previous_version" FK chain** — a
+    shared group key makes "every version of this document" a single
+    indexed `filter()`, with no recursive walk required; a parent-pointer
+    chain would need either repeated queries or a recursive CTE to answer
+    the same question. The one-time cost is generating a UUID at version 1
+    and copying it forward — negligible next to the query simplicity it
+    buys every time a document's history is read.
+27. **`SITE_INSPECTOR` write access is scoped narrowly (inspections +
+    evidence only), via a project-level `get_permissions()` override on
+    `ProjectViewSet`, not a blanket role addition to `PROJECT_WRITE_ROLES`**
+    — extending the shared `PROJECT_WRITE_ROLES` set directly would have
+    silently given site inspectors write access to projects, budgets,
+    payments, and variations too, which is a materially different (and
+    unwanted) permission grant. Scoping the extension to exactly the two
+    actions that need it keeps the blast radius of "what SITE_INSPECTOR
+    can touch" equal to "what a site inspector's job actually is."

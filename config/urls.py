@@ -11,6 +11,11 @@ URL configuration for GlintPM Private.
     - /api/variations/       Direct variation lookup, update, approve
     - /api/risks/            Direct risk lookup + update
     - /api/issues/           Direct issue lookup + update
+    - /api/inspections/      Direct inspection lookup, update, complete
+    - /api/inspection-items/ Direct inspection item lookup + update
+    - /api/evidence/         Direct evidence lookup + authenticated download
+    - /api/folders/          Direct document folder lookup + update
+    - /api/documents/        Direct document lookup, update, download, versions
     - /api/schema/           Raw OpenAPI schema (drf-spectacular)
     - /api/docs/             Swagger UI
     - /api/redoc/            ReDoc UI
@@ -32,6 +37,8 @@ urlpatterns = [
     path("api/", include("apps.projects.urls")),
     path("api/", include("apps.variations.urls")),
     path("api/", include("apps.risks.urls")),
+    path("api/", include("apps.inspections.urls")),
+    path("api/", include("apps.documents.urls")),
     # OpenAPI / Swagger documentation
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(

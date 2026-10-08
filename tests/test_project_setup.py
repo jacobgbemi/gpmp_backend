@@ -35,13 +35,13 @@ class TestDjangoBootsCorrectly:
 
     def test_no_premature_business_domain_apps(self):
         """
-        Stage 3 adds variations + risks (which also covers issues — see
-        apps/risks/models.py). Inspections, documents, reports, and
-        notifications are still out of scope until their own stages.
+        Stage 4 adds inspections (which also covers inspection items and
+        evidence — see apps/inspections/models.py) + documents (which also
+        covers folders — see apps/documents/models.py). Reports,
+        contractors, notifications, and audit are still out of scope until
+        their own stages.
         """
         forbidden_labels = {
-            "inspections",
-            "documents",
             "reports",
             "contractors",
             "notifications",
@@ -50,7 +50,7 @@ class TestDjangoBootsCorrectly:
         installed_labels = {cfg.label for cfg in apps.get_app_configs()}
         assert installed_labels.isdisjoint(forbidden_labels)
 
-    def test_expected_stage3_apps_are_installed(self):
+    def test_expected_stage4_apps_are_installed(self):
         installed_labels = {cfg.label for cfg in apps.get_app_configs()}
         assert {
             "core",
@@ -59,6 +59,8 @@ class TestDjangoBootsCorrectly:
             "projects",
             "variations",
             "risks",
+            "inspections",
+            "documents",
         }.issubset(installed_labels)
 
 
@@ -143,6 +145,23 @@ class TestAdminAndUnfold:
 
         assert admin.site.is_registered(Risk)
         assert admin.site.is_registered(Issue)
+
+    def test_inspection_models_are_registered_in_admin(self):
+        from django.contrib import admin
+
+        from apps.inspections.models import Inspection, InspectionItem, ProjectEvidence
+
+        assert admin.site.is_registered(Inspection)
+        assert admin.site.is_registered(InspectionItem)
+        assert admin.site.is_registered(ProjectEvidence)
+
+    def test_document_models_are_registered_in_admin(self):
+        from django.contrib import admin
+
+        from apps.documents.models import Document, DocumentFolder
+
+        assert admin.site.is_registered(DocumentFolder)
+        assert admin.site.is_registered(Document)
 
 
 @pytest.mark.django_db

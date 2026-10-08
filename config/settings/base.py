@@ -79,6 +79,8 @@ INSTALLED_APPS = [
     "apps.projects",
     "apps.variations",
     "apps.risks",
+    "apps.inspections",
+    "apps.documents",
 ]
 
 MIDDLEWARE = [
@@ -163,6 +165,18 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# ---------------------------------------------------------------------------
+# File uploads (Stage 4 — evidence & documents)
+# ---------------------------------------------------------------------------
+# NOTE: MEDIA_URL is intentionally never wired into urlpatterns with
+# Django's static() helper, even in development. Every uploaded file is
+# fetched exclusively through the authenticated download views
+# (/api/evidence/{id}/download/, /api/documents/{id}/download/) — see
+# README "file security review". There is deliberately no public,
+# unauthenticated path to anything under MEDIA_ROOT.
+MAX_EVIDENCE_UPLOAD_SIZE_MB = env.int("MAX_EVIDENCE_UPLOAD_SIZE_MB", default=25)
+MAX_DOCUMENT_UPLOAD_SIZE_MB = env.int("MAX_DOCUMENT_UPLOAD_SIZE_MB", default=20)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
